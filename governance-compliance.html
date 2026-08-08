@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Compliance · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Compliance Center</h1><div class="sub">GST, PF, ESIC, ITR and financial document status across every vendor.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+const tone = { VERIFIED:'success', PENDING:'warning', EXPIRED:'error', REJECTED:'error', REVIEW_REQUIRED:'info' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [docs, vendors] = await Promise.all([api.listCompliance(), api.listVendors()]);
+  document.getElementById('seedBtn').style.display = docs.length ? 'none':'';
+  const rows = docs.map(d=>({ ...d, venName: vendors.find(v=>v.id===d.vendorId)?.name||'—' }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'venName', label:'Vendor', sortable:true },
+      { key:'type', label:'Document Type', sortable:true, render:r=> r.type.replaceAll('_',' ') },
+      { key:'status', label:'Status', sortable:true, render:r=> `<span class="badge badge-${tone[r.status]}">${r.status.replace('_',' ')}</span>` },
+      { key:'expiryDate', label:'Expiry', sortable:true, render:r=> new Date(r.expiryDate).toLocaleDateString() },
+    ],
+    rows, getId:r=>r.id, pageSize:14, searchKeys:['venName','type'],
+    filters:[{ key:'status', label:'Status', options:Object.keys(tone).map(v=>({value:v,label:v.replace('_',' ')})) }],
+    emptyState:{ icon:'shield', title:'No compliance documents tracked', desc:'Vendor compliance documents and their expiry will appear here.' },
+  });
+}
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); boot(); });
+boot();
+</script>
+</body>
+</html>

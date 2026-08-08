@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Labour Structure · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Approved Labour Structure</h1><div class="sub">Plan and allocate approved workforce by category, warehouse and vendor. Every change is versioned and auditable.</div></div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+          <button class="btn btn-primary" id="requestBtn">Submit change request</button>
+        </div>
+      </div>
+      <div id="body"></div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+const catColor = { SKILLED:'var(--accent)', SEMI_SKILLED:'var(--info)', UNSKILLED:'var(--accent-2)' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [structure, warehouses] = await Promise.all([api.listStructure(), api.listWarehouses()]);
+  document.getElementById('seedBtn').style.display = structure.length ? 'none':'';
+
+  if(!structure.length){
+    document.getElementById('body').innerHTML = `<div class="panel state-block" style="padding:70px 20px;"><div class="state-icon">${icon('layers')}</div><h3>No labour structure defined</h3><p>Define approved workforce per warehouse and category, or load development data to preview this workspace.</p></div>`;
+    return;
+  }
+
+  document.getElementById('body').innerHTML = warehouses.map(w=>{
+    const rows = structure.filter(s=>s.warehouseId===w.id);
+    if(!rows.length) return '';
+    return `<div class="panel mb-16">
+      <div class="panel-head"><div><h3>${w.name}</h3><div class="desc">${w.code}</div></div></div>
+      <div class="panel-body">
+        <div class="card-grid" style="grid-template-columns:repeat(3,1fr);">
+          ${rows.map(r=>{
+            const avail = r.allocated - r.actual;
+            const variance = r.actual - r.approved;
+            const pct = Math.min(100, Math.round((r.actual/r.approved)*100));
+            return `<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;">
+              <div class="flex-between mb-10">
+                <span class="badge" style="background:${catColor[r.category]}22;color:${catColor[r.category]};">${r.category.replace('_',' ')}</span>
+                <span style="font-size:var(--fs-xs);color:${variance<0?'var(--error)':'var(--success)'}">${variance>=0?'+':''}${variance}</span>
+              </div>
+              <div class="progress mb-10"><div style="width:${pct}%;background:${catColor[r.category]};"></div></div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:10.5px;color:var(--text-tertiary);text-align:center;">
+                <div><b class="mono" style="display:block;color:var(--text-primary);font-size:13px;">${r.approved}</b>Approved</div>
+                <div><b class="mono" style="display:block;color:var(--text-primary);font-size:13px;">${r.allocated}</b>Allocated</div>
+                <div><b class="mono" style="display:block;color:var(--text-primary);font-size:13px;">${r.actual}</b>Actual</div>
+                <div><b class="mono" style="display:block;color:var(--text-primary);font-size:13px;">${avail}</b>Available</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('requestBtn').addEventListener('click', ()=> toast.show({type:'info', title:'Change request', msg:'Structure change requests route through the Approval Center once submitted.'}));
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

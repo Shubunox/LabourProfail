@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Approvals · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Approval Center</h1><div class="sub">Every workflow in LabourPro routes here — labour structure, vendors, staff, ad-hoc requests, overtime, invoices and contracts.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="card-grid mb-20" style="grid-template-columns:repeat(4,1fr);" id="stats"></div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start;">
+        <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Decision detail</h3></div><div class="panel-body" id="detail">
+          <div class="state-block" style="padding:36px 10px;"><div class="state-icon">${''}</div><h3>Select a request</h3><p>Choose an approval from the queue to review its detail and decide.</p></div>
+        </div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+const prioTone = { LOW:'neutral', MEDIUM:'info', HIGH:'warning', CRITICAL:'error' };
+const statusTone = { PENDING:'warning', APPROVED:'success', REJECTED:'error' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const approvals = await api.listApprovals();
+  document.getElementById('seedBtn').style.display = approvals.length ? 'none':'';
+
+  const pending = approvals.filter(a=>a.status==='PENDING').length;
+  const critical = approvals.filter(a=>a.priority==='CRITICAL' && a.status==='PENDING').length;
+  const approved = approvals.filter(a=>a.status==='APPROVED').length;
+  const rejected = approvals.filter(a=>a.status==='REJECTED').length;
+  document.getElementById('stats').innerHTML = [
+    ['Pending', pending, 'warning'], ['Critical', critical, 'error'], ['Approved', approved, 'success'], ['Rejected', rejected, 'neutral'],
+  ].map(([l,v,t])=> `<div class="kpi-card"><div class="kpi-label mb-8">${l}</div><div class="kpi-value" style="font-size:20px;color:var(--${t}${t!=='neutral'?'':''});">${v}</div></div>`).join('');
+
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'title', label:'Request', sortable:true, render:r=> `<div><b>${r.title}</b><div class="cell-sub mono">${r.id} · ${r.type.replaceAll('_',' ')}</div></div>` },
+      { key:'requester', label:'Requester' },
+      { key:'priority', label:'Priority', sortable:true, render:r=> `<span class="badge badge-${prioTone[r.priority]}">${r.priority}</span>` },
+      { key:'status', label:'Status', sortable:true, render:r=> `<span class="badge badge-${statusTone[r.status]}">${r.status}</span>` },
+      { key:'createdAt', label:'Raised', sortable:true, render:r=> new Date(r.createdAt).toLocaleDateString() },
+    ],
+    rows: approvals, getId:r=>r.id, pageSize:10, searchKeys:['title','requester'],
+    filters:[{ key:'status', label:'Status', options:[{value:'PENDING',label:'Pending'},{value:'APPROVED',label:'Approved'},{value:'REJECTED',label:'Rejected'}] }],
+    onRowClick: showDetail,
+    emptyState:{ icon:'checkCircle', title:'No approvals in queue', desc:'Requests from every module will surface here for decision.' },
+  });
+}
+
+function showDetail(a){
+  document.getElementById('detail').innerHTML = `
+    <div class="mb-16"><span class="badge badge-${prioTone[a.priority]}">${a.priority} PRIORITY</span></div>
+    <h3 style="font-size:var(--fs-lg);margin-bottom:6px;">${a.title}</h3>
+    <div class="cell-sub mono mb-16">${a.id}</div>
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      ${field('Type', a.type.replaceAll('_',' '))}${field('Requester', a.requester)}
+      ${field('Status', a.status)}${field('Raised', new Date(a.createdAt).toLocaleString())}
+    </div>
+    <div class="field mb-16"><label>Comment</label><textarea class="input" id="decisionComment" placeholder="Add context for the audit trail…"></textarea></div>
+    ${a.status==='PENDING' ? `
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" id="approveBtn" style="flex:1;">${icon('checkCircle')} Approve</button>
+        <button class="btn btn-danger" id="rejectBtn" style="flex:1;">${icon('xCircle')} Reject</button>
+      </div>` : `<div class="badge badge-${statusTone[a.status]}" style="padding:8px 14px;">Already ${a.status.toLowerCase()}</div>`}
+    <div class="divider"></div>
+    <div class="section-title">Approval timeline</div>
+    <div class="cell-sub">Request raised by ${a.requester} → routed to approval chain → awaiting decision.</div>`;
+
+  document.getElementById('approveBtn')?.addEventListener('click', ()=> decide(a, 'APPROVED'));
+  document.getElementById('rejectBtn')?.addEventListener('click', ()=> decide(a, 'REJECTED'));
+}
+function field(l,v){ return `<div class="field"><label>${l}</label><div class="input" style="display:flex;align-items:center;background:rgba(255,255,255,0.02);font-size:var(--fs-xs);">${v}</div></div>`; }
+async function decide(a, decision){
+  await api.decideApproval(a.id, decision);
+  toast.show({type: decision==='APPROVED'?'success':'warning', title:`Request ${decision.toLowerCase()}`});
+  boot();
+  document.getElementById('detail').innerHTML = `<div class="state-block" style="padding:36px 10px;"><div class="state-icon">${icon('checkCircle')}</div><h3>Decision recorded</h3><p>Select another request from the queue.</p></div>`;
+}
+
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Billable Schedule · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+<style>
+  .lifecycle{ display:flex; align-items:center; gap:0; flex-wrap:wrap; }
+  .lifecycle .lc-step{ font-size:9.5px; padding:4px 9px; border-radius:99px; background:rgba(255,255,255,0.06); color:var(--text-tertiary); white-space:nowrap; }
+  .lifecycle .lc-step.done{ background:var(--success-soft); color:var(--success); }
+  .lifecycle .lc-arrow{ width:10px; height:1px; background:var(--border-strong); margin:0 3px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Monthly Billable Schedule</h1><div class="sub">Reconciliation of labour cost per vendor, with a clear status lifecycle from generation to posting.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+const LIFECYCLE = ['GENERATED','VENDOR_REVIEW','INVOICE_UPLOADED','MATCHED','TOLERANCE','CLARIFICATION','APPROVED','POSTED'];
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [schedules, vendors, warehouses] = await Promise.all([api.listBillableSchedules(), api.listVendors(), api.listWarehouses()]);
+  document.getElementById('seedBtn').style.display = schedules.length ? 'none':'';
+  const rows = schedules.map(s=>({ ...s, venName: vendors.find(v=>v.id===s.vendorId)?.name||'—', whName: warehouses.find(w=>w.id===s.warehouseId)?.code||'—' }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'venName', label:'Vendor', sortable:true, render:r=> `<div><b>${r.venName}</b><div class="cell-sub mono">${r.id}</div></div>` },
+      { key:'whName', label:'Warehouse' }, { key:'month', label:'Month' },
+      { key:'labourQty', label:'Labour Qty', sortable:true },
+      { key:'monthlyTotal', label:'Monthly Total', sortable:true, render:r=> `<span class="mono">₹${r.monthlyTotal.toLocaleString('en-IN')}</span>` },
+      { key:'status', label:'Lifecycle', width:'320px', render:r=>{
+        const idx = LIFECYCLE.indexOf(r.status);
+        return `<div class="lifecycle">${LIFECYCLE.map((s,i)=> `<span class="lc-step ${i<=idx?'done':''}">${s.replace('_',' ')}</span>${i<LIFECYCLE.length-1?'<span class="lc-arrow"></span>':''}`).join('')}</div>`;
+      }},
+    ],
+    rows, getId:r=>r.id, pageSize:8, searchKeys:['venName'],
+    emptyState:{ icon:'scroll', title:'No billable schedules yet', desc:'Monthly reconciliation schedules per vendor will appear here.' },
+  });
+}
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); boot(); });
+boot();
+</script>
+</body>
+</html>

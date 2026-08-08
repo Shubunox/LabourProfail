@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Biometric Enrollment · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+<style>
+  .steps-rail{ display:flex; gap:6px; margin-bottom:28px; }
+  .steps-rail > div{ flex:1; height:4px; border-radius:99px; background:rgba(255,255,255,0.08); overflow:hidden; }
+  .steps-rail > div > span{ display:block; height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent-2)); transition:width 320ms var(--ease-out); }
+  .enroll-icon{ width:88px; height:88px; border-radius:24px; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; background:var(--accent-soft); color:var(--accent); position:relative; }
+  .enroll-icon svg{ width:36px; height:36px; }
+  .enroll-icon.pulsing::before{ content:''; position:absolute; inset:-10px; border-radius:30px; border:2px solid var(--accent); opacity:0.4; animation:pulseRing2 1.4s ease-out infinite; }
+  @keyframes pulseRing2{ from{transform:scale(0.85);opacity:0.5;} to{transform:scale(1.15);opacity:0;} }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content" style="max-width:720px;">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Biometric Enrollment</h1><div class="sub">Register a worker's biometric identifier on a warehouse device.</div></div></div>
+
+      <div class="panel">
+        <div class="panel-body" style="padding:32px;">
+          <div class="steps-rail" id="rail"></div>
+          <div id="stepBody" style="min-height:280px;"></div>
+          <div class="flex-between" style="margin-top:28px;">
+            <button class="btn btn-secondary" id="backBtn">Back</button>
+            <button class="btn btn-primary" id="nextBtn">Continue</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { deviceManager } from './js/biometric/device-manager.js';
+mountShell();
+
+const STEPS = ['Select Staff','Select Device','Start Enrollment','Device Ready','Capture Biometric','Verify Identity','Confirm Enrollment','Synchronize','Completed'];
+let step = 0, staff=[], devices=[], selStaff=null, selDevice=null;
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  [staff, devices] = await Promise.all([api.listStaff(), api.listDevices()]);
+  renderRail(); renderStep();
+}
+
+function renderRail(){
+  document.getElementById('rail').innerHTML = STEPS.map((_,i)=> `<div><span style="width:${i<=step?'100%':'0%'}"></span></div>`).join('');
+}
+
+function renderStep(){
+  renderRail();
+  const body = document.getElementById('stepBody');
+  const backBtn = document.getElementById('backBtn'), nextBtn = document.getElementById('nextBtn');
+  backBtn.style.visibility = step===0 ? 'hidden':'visible';
+  nextBtn.textContent = step===STEPS.length-1 ? 'Done' : (step===2?'Begin':'Continue');
+  nextBtn.disabled = false;
+
+  if(step===0){
+    body.innerHTML = `<div class="section-title">${STEPS[0]}</div>
+      <div class="table-wrap" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;">
+        <table class="dtable"><tbody>
+          ${staff.filter(s=>!s.biometricEnrolled).slice(0,40).map(s=> `
+          <tr data-id="${s.id}" style="cursor:pointer;">
+            <td style="width:34px;"><input type="radio" name="staffPick" class="checkbox" ${selStaff?.id===s.id?'checked':''}/></td>
+            <td><b>${s.name}</b><div class="cell-sub mono">${s.id}</div></td>
+            <td>${s.category.replace('_',' ')}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </div>`;
+    body.querySelectorAll('tr').forEach(tr=> tr.addEventListener('click', ()=>{ selStaff = staff.find(s=>s.id===tr.dataset.id); renderStep(); }));
+    nextBtn.disabled = !selStaff;
+  }
+  if(step===1){
+    body.innerHTML = `<div class="section-title">${STEPS[1]}</div>
+      <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+        ${devices.map(d=> `
+        <div data-id="${d.id}" class="panel" style="padding:14px;cursor:pointer;border-color:${selDevice?.id===d.id?'var(--accent)':'var(--border)'};">
+          <div class="flex-between mb-8"><b style="font-size:var(--fs-sm);">${d.name}</b><span class="badge badge-${d.connectionStatus==='CONNECTED'?'success':'neutral'}">${d.connectionStatus}</span></div>
+          <div class="cell-sub mono">${d.model} · ${d.ip}</div>
+        </div>`).join('')}
+      </div>`;
+    body.querySelectorAll('[data-id]').forEach(el=> el.addEventListener('click', ()=>{ selDevice = devices.find(d=>d.id===el.dataset.id); renderStep(); }));
+    nextBtn.disabled = !selDevice;
+  }
+  if(step===2){
+    body.innerHTML = `<div style="text-align:center;padding:20px 0;">
+      <div class="enroll-icon">${icon('fingerprint')}</div>
+      <h3 style="margin-bottom:8px;">Ready to enroll ${selStaff.name}</h3>
+      <p class="text-tertiary" style="font-size:var(--fs-sm);max-width:420px;margin:0 auto;">Enrollment will register a new biometric identifier for this worker on <b>${selDevice.name}</b>. Ensure the worker is present at the device before continuing.</p>
+    </div>`;
+  }
+  if(step===3){
+    body.innerHTML = statusStep('Device Ready', 'Preparing device for capture…', true);
+    setTimeout(()=> autoAdvance(), 1100);
+  }
+  if(step===4){
+    body.innerHTML = statusStep('Capture Biometric', 'Waiting for the worker to place their finger / face at the device…', true, true);
+    setTimeout(()=> autoAdvance(), 1400);
+  }
+  if(step===5){
+    body.innerHTML = statusStep('Verify Identity', 'Confirming capture quality and matching against existing records…', true);
+    setTimeout(()=> autoAdvance(), 1200);
+  }
+  if(step===6){
+    body.innerHTML = `<div style="text-align:center;padding:20px 0;">
+      <div class="enroll-icon" style="background:var(--success-soft);color:var(--success);">${icon('checkCircle')}</div>
+      <h3 style="margin-bottom:8px;">Biometric captured successfully</h3>
+      <p class="text-tertiary" style="font-size:var(--fs-sm);">Confirm to finalize enrollment and synchronize the new identifier to the device.</p>
+    </div>`;
+  }
+  if(step===7){
+    body.innerHTML = statusStep('Synchronize', 'Pushing enrollment to device and updating the staff record…', true);
+    deviceManager.syncUsers(selDevice).then(()=> setTimeout(()=> autoAdvance(), 900));
+  }
+  if(step===8){
+    body.innerHTML = `<div style="text-align:center;padding:24px 0;">
+      <div class="enroll-icon" style="background:var(--success-soft);color:var(--success);">${icon('check')}</div>
+      <h3 style="margin-bottom:8px;">Enrollment complete</h3>
+      <p class="text-tertiary" style="font-size:var(--fs-sm);">${selStaff.name} is now enrolled on ${selDevice.name}. This device record will reflect the updated enrolled-user count.</p>
+      <a class="btn btn-secondary btn-sm" href="workforce-staff.html" style="margin-top:16px;">Back to Labour Staff</a>
+    </div>`;
+    nextBtn.style.display = 'none'; backBtn.style.display = 'none';
+  }
+}
+
+function statusStep(title, desc, pulsing, showBadge){
+  return `<div style="text-align:center;padding:20px 0;">
+    <div class="enroll-icon ${pulsing?'pulsing':''}">${icon('fingerprint')}</div>
+    <h3 style="margin-bottom:8px;">${title}</h3>
+    <p class="text-tertiary" style="font-size:var(--fs-sm);max-width:420px;margin:0 auto;">${desc}</p>
+    ${showBadge ? `<span class="badge badge-neutral" style="margin-top:14px;">DEVELOPMENT SIMULATION</span>`:''}
+  </div>`;
+}
+function autoAdvance(){ if(step<STEPS.length-1){ step++; renderStep(); } }
+
+document.getElementById('nextBtn').addEventListener('click', ()=>{
+  if(step < STEPS.length-1){ step++; renderStep(); }
+});
+document.getElementById('backBtn').addEventListener('click', ()=>{ if(step>0){ step--; renderStep(); } });
+
+boot();
+</script>
+</body>
+</html>

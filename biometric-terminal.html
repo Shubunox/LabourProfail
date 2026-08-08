@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Live Terminal · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+<style>
+  .term-shell{ background:#020207; border:1px solid var(--border-strong); border-radius:var(--r-xl); overflow:hidden; box-shadow:var(--shadow-lg); }
+  .term-head{ display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border-soft); background:rgba(255,255,255,0.02); }
+  .term-grid{ display:grid; grid-template-columns:280px 1fr; min-height:480px; }
+  @media (max-width:900px){ .term-grid{ grid-template-columns:1fr; } }
+  .term-side{ border-right:1px solid var(--border-soft); padding:18px; display:flex; flex-direction:column; gap:14px; }
+  .term-stat{ display:flex; justify-content:space-between; align-items:center; font-size:var(--fs-xs); padding:8px 0; border-bottom:1px solid var(--border-soft); }
+  .term-stat b{ color:var(--text-primary); font-family:var(--font-mono); font-weight:600; }
+  .term-stream{ padding:20px; overflow-y:auto; max-height:560px; display:flex; flex-direction:column; gap:10px; }
+  .evt{ border:1px solid var(--border); border-radius:var(--r-md); padding:14px 16px; background:rgba(255,255,255,0.03); animation:evtIn 420ms cubic-bezier(.16,1,.3,1) both; }
+  @keyframes evtIn{ from{opacity:0; transform:translateY(-8px) scale(0.98);} to{opacity:1; transform:translateY(0) scale(1);} }
+  .evt-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .evt-steps{ display:flex; gap:4px; }
+  .evt-step{ flex:1; height:3px; border-radius:99px; background:rgba(255,255,255,0.08); overflow:hidden; }
+  .evt-step > div{ height:100%; width:0%; background:var(--accent-2); transition:width 320ms ease; }
+  .evt-step.done > div{ width:100%; }
+  .evt-label{ font-size:10.5px; color:var(--text-tertiary); margin-top:6px; }
+  .device-offline{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 20px; text-align:center; gap:10px; }
+  .pulse-dot{ width:10px; height:10px; border-radius:50%; position:relative; }
+  .pulse-dot::after{ content:''; position:absolute; inset:-6px; border-radius:50%; border:2px solid currentColor; opacity:0.5; animation:pulseRing 1.6s ease-out infinite; }
+  @keyframes pulseRing{ from{ transform:scale(0.6); opacity:0.6;} to{ transform:scale(1.8); opacity:0;} }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Live Biometric Terminal</h1><div class="sub">Real-time authentication and attendance event stream for a single device.</div></div>
+        <div class="page-header-actions">
+          <select class="select" id="deviceSelect" style="min-width:220px;"></select>
+        </div>
+      </div>
+
+      <div class="term-shell mb-20">
+        <div class="term-head">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="pulse-dot" id="pulseDot" style="color:var(--text-tertiary);background:var(--text-tertiary);"></span>
+            <div><div style="font-weight:600;font-size:var(--fs-sm);" id="deviceTitle">Select a device</div><div class="cell-sub" id="deviceSub">—</div></div>
+          </div>
+          <span class="badge badge-neutral" id="modeBadge">DEVELOPMENT MODE</span>
+        </div>
+        <div class="term-grid">
+          <div class="term-side" id="termSide"></div>
+          <div class="term-stream" id="termStream"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { deviceManager } from './js/biometric/device-manager.js';
+import { deviceConfig } from './js/biometric/device-config.js';
+mountShell();
+
+const stageMeta = {
+  AUTH_RECEIVED:      { label:'Authentication received', icon:'scan' },
+  IDENTITY_VERIFICATION: { label:'Identity verification', icon:'fingerprint' },
+  EMPLOYEE_IDENTIFIED: { label:'Employee identified', icon:'users' },
+  WAREHOUSE_VALIDATED: { label:'Warehouse / device validated', icon:'building' },
+  ATTENDANCE_LOGGED:   { label:'Attendance event logged', icon:'clock' },
+  DB_SYNCED:           { label:'Database synchronized', icon:'server' },
+};
+const STAGES = Object.keys(stageMeta);
+
+let devices = [], staff = [], warehouses = [], currentDevice = null, stopSim = null;
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  [devices, staff, warehouses] = await Promise.all([api.listDevices(), api.listStaff(), api.listWarehouses()]);
+  const sel = document.getElementById('deviceSelect');
+
+  if(!devices.length){
+    document.getElementById('termSide').innerHTML = '';
+    document.getElementById('termStream').innerHTML = offlineHtml('No devices registered', 'Register a biometric device to open its live terminal.');
+    sel.innerHTML = `<option>No devices available</option>`;
+    return;
+  }
+
+  sel.innerHTML = devices.map(d=> `<option value="${d.id}">${d.name}</option>`).join('');
+  const params = new URLSearchParams(location.search);
+  const preselect = params.get('device');
+  sel.value = devices.find(d=>d.id===preselect) ? preselect : devices[0].id;
+  sel.addEventListener('change', ()=> selectDevice(sel.value));
+  selectDevice(sel.value);
+}
+
+function offlineHtml(title, sub){
+  return `<div class="device-offline">
+    <div class="state-icon offline">${icon('wifi')}</div>
+    <h3>${title}</h3><p>${sub}</p>
+  </div>`;
+}
+
+function selectDevice(id){
+  if(stopSim) stopSim();
+  currentDevice = devices.find(d=>d.id===id);
+  const wh = warehouses.find(w=>w.id===currentDevice.warehouseId);
+  document.getElementById('deviceTitle').textContent = currentDevice.name;
+  document.getElementById('deviceSub').textContent = `${currentDevice.model} · ${currentDevice.ip}:${currentDevice.port}`;
+  const liveGateway = deviceConfig.isGatewayConfigured();
+  document.getElementById('modeBadge').textContent = liveGateway ? 'LIVE DEVICE MODE' : 'DEVELOPMENT MODE';
+  document.getElementById('modeBadge').className = `badge badge-${liveGateway?'accent':'neutral'}`;
+
+  renderSide(currentDevice, wh);
+
+  const stream = document.getElementById('termStream');
+  const pulse = document.getElementById('pulseDot');
+
+  if(currentDevice.connectionStatus === 'DISCONNECTED' || currentDevice.connectionStatus === 'ERROR'){
+    pulse.style.color = 'var(--error)'; pulse.style.background = 'var(--error)';
+    stream.innerHTML = offlineHtml('DEVICE OFFLINE', 'This terminal is not connected. Reconnect it from Biometric Devices, or continue in simulation mode below for development purposes.');
+    stream.innerHTML += `<div style="text-align:center;"><button class="btn btn-secondary btn-sm" id="simAnyway">Run development simulation</button></div>`;
+    document.getElementById('simAnyway')?.addEventListener('click', startStream);
+    return;
+  }
+  pulse.style.color = 'var(--success)'; pulse.style.background = 'var(--success)';
+  stream.innerHTML = '';
+  startStream();
+}
+
+function renderSide(d, wh){
+  document.getElementById('termSide').innerHTML = `
+    <div class="section-title">Device Status</div>
+    ${row('Connection', d.connectionStatus)}
+    ${row('Warehouse', wh ? wh.name : '—')}
+    ${row('Device time', new Date().toLocaleTimeString())}
+    ${row('Last synchronization', new Date(d.lastSync).toLocaleString())}
+    ${row('Network status', d.connectionStatus==='CONNECTED' ? 'Reachable':'Unreachable')}
+    ${row('Database sync', 'Up to date')}
+    <div class="divider"></div>
+    <div class="section-title">Mode</div>
+    <p class="text-tertiary" style="font-size:var(--fs-xs);line-height:1.6;">
+      ${deviceConfig.isGatewayConfigured()
+        ? 'Connected to a configured device gateway. Events shown are forwarded from real hardware.'
+        : 'No device gateway is configured. Events below are generated locally for development and are clearly labeled — they are never presented as real hardware events.'}
+    </p>`;
+  function row(l,v){ return `<div class="term-stat"><span>${l}</span><b>${v}</b></div>`; }
+}
+
+function startStream(){
+  const stream = document.getElementById('termStream');
+  stream.innerHTML = '';
+  stopSim = deviceManager.startSimulationStream(currentDevice, (evt)=> renderEvent(evt));
+}
+
+let eventCounter = 0;
+function renderEvent(evt){
+  const stream = document.getElementById('termStream');
+  eventCounter++;
+  if(evt.stage === 'AUTH_RECEIVED'){
+    const randomStaff = staff.filter(s=> s.warehouseId===currentDevice.warehouseId && s.biometricEnrolled);
+    const person = randomStaff.length ? randomStaff[Math.floor(Math.random()*randomStaff.length)] : null;
+    const card = document.createElement('div');
+    card.className = 'evt';
+    card.dataset.evtId = eventCounter;
+    card.innerHTML = `
+      <div class="evt-head">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="avatar-sm">${person ? person.name.split(' ').map(n=>n[0]).join('') : '?'}</span>
+          <div><div style="font-size:var(--fs-sm);font-weight:550;">${person ? person.name : 'Unidentified biometric ID'}</div><div class="cell-sub mono">${new Date(evt.timestamp).toLocaleTimeString()} · ${evt.simulated?'SIMULATED':'LIVE'}</div></div>
+        </div>
+        <span class="badge badge-info">Processing</span>
+      </div>
+      <div class="evt-steps">${STAGES.map(()=> `<div class="evt-step"><div></div></div>`).join('')}</div>
+      <div class="evt-label" id="evt-label-${eventCounter}">${stageMeta.AUTH_RECEIVED.label}</div>`;
+    stream.prepend(card);
+    while(stream.children.length > 12) stream.removeChild(stream.lastChild);
+    advanceStep(card, 0);
+    return;
+  }
+  const card = stream.querySelector(`[data-evt-id="${eventCounter}"]`);
+  if(!card) return;
+  const idx = STAGES.indexOf(evt.stage);
+  advanceStep(card, idx);
+  if(evt.stage === 'DB_SYNCED'){
+    card.querySelector('.badge').outerHTML = `<span class="badge badge-success">Complete</span>`;
+  }
+}
+function advanceStep(card, idx){
+  const steps = card.querySelectorAll('.evt-step');
+  steps.forEach((s,i)=>{ if(i<=idx) s.classList.add('done'); });
+  const label = card.querySelector('[id^="evt-label-"]');
+  if(label && stageMeta[STAGES[idx]]) label.textContent = stageMeta[STAGES[idx]].label;
+}
+
+boot();
+</script>
+</body>
+</html>

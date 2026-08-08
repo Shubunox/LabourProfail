@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ad-Hoc Labour · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Ad-Hoc Labour</h1><div class="sub">Request temporary workforce beyond approved structure. Requests are evaluated against approved capacity automatically.</div></div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+          <button class="btn btn-primary" id="newBtn">New request</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal">
+  <div class="panel-head"><h3>New ad-hoc request</h3><button class="icon-btn" id="closeModal"></button></div>
+  <div class="panel-body">
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Warehouse <span class="req">*</span></label><select class="select" id="whSel"></select></div>
+      <div class="field"><label>Vendor <span class="req">*</span></label><select class="select" id="venSel"></select></div>
+    </div>
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Category <span class="req">*</span></label><select class="select"><option>SKILLED</option><option>SEMI_SKILLED</option><option>UNSKILLED</option></select></div>
+      <div class="field"><label>Required quantity <span class="req">*</span></label><input class="input" type="number" placeholder="e.g. 15"/></div>
+    </div>
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Start date</label><input type="date" class="input"/></div>
+      <div class="field"><label>End date</label><input type="date" class="input"/></div>
+    </div>
+    <div class="field"><label>Reason <span class="req">*</span></label><textarea class="input" placeholder="e.g. Seasonal peak volume surge"></textarea></div>
+    <div class="hint" style="margin-top:8px;">If the request exceeds approved structure headroom, it will automatically route to the configured approval chain.</div>
+  </div>
+  <div class="drawer-foot" style="border-top:1px solid var(--border-soft);"><button class="btn btn-secondary" id="cancelModal">Cancel</button><button class="btn btn-primary" id="submitReq">Submit request</button></div>
+</div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+document.getElementById('closeModal').innerHTML = icon('x');
+
+let warehouses=[], vendors=[];
+const statusTone = { PENDING:'warning', APPROVED:'success', REJECTED:'error' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [reqs, w, v] = await Promise.all([api.listAdHocRequests(), api.listWarehouses(), api.listVendors()]);
+  warehouses=w; vendors=v;
+  document.getElementById('seedBtn').style.display = reqs.length ? 'none':'';
+  document.getElementById('whSel').innerHTML = w.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+  document.getElementById('venSel').innerHTML = v.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+
+  const rows = reqs.map(r=>({ ...r, whName: w.find(x=>x.id===r.warehouseId)?.code||'—', venName: v.find(x=>x.id===r.vendorId)?.name||'—' }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'id', label:'Request', sortable:true, render:r=> `<span class="cell-id">${r.id}</span>` },
+      { key:'whName', label:'Warehouse' }, { key:'venName', label:'Vendor' },
+      { key:'category', label:'Category', render:r=> r.category.replace('_',' ') },
+      { key:'quantity', label:'Quantity', sortable:true },
+      { key:'startDate', label:'Effective', render:r=> `${new Date(r.startDate).toLocaleDateString()}`},
+      { key:'status', label:'Status', sortable:true, render:r=> `<span class="badge badge-${statusTone[r.status]}">${r.status}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:10, searchKeys:['id','whName','venName'],
+    emptyState:{ icon:'userPlus', title:'No ad-hoc requests', desc:'Temporary workforce requests will appear here.' },
+  });
+}
+document.getElementById('newBtn').addEventListener('click', ()=> document.getElementById('modalScrim').classList.add('show'));
+document.getElementById('closeModal').addEventListener('click', ()=> document.getElementById('modalScrim').classList.remove('show'));
+document.getElementById('cancelModal').addEventListener('click', ()=> document.getElementById('modalScrim').classList.remove('show'));
+document.getElementById('submitReq').addEventListener('click', ()=>{ document.getElementById('modalScrim').classList.remove('show'); toast.show({type:'success', title:'Request submitted', msg:'Evaluated against approved structure and routed accordingly.'}); });
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

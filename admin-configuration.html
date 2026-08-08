@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Configuration · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Configuration</h1><div class="sub">Operational rules applied across attendance, overtime, holidays and cost calculation.</div></div></div>
+
+      <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="panel"><div class="panel-head"><h3>Attendance Rules</h3></div><div class="panel-body" id="attRules"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Overtime Rules</h3></div><div class="panel-body" id="otRules"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Cost Rules</h3></div><div class="panel-body" id="costRules"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Approval Rules</h3></div><div class="panel-body" id="apprRules"></div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+function row(label, val){ return `<div class="flex-between mb-12"><span style="font-size:var(--fs-xs);color:var(--text-secondary);">${label}</span><span style="font-size:var(--fs-xs);font-weight:600;">${val}</span></div>`; }
+
+document.getElementById('attRules').innerHTML = row('Grace period (minutes)','10') + row('Minimum hours for full day','8') + row('Manual attendance','Authorized In-Plant only') + row('Auto-flag exceptions','Enabled');
+document.getElementById('otRules').innerHTML = row('Daily threshold (hours)','9') + row('OT rate multiplier','1.3×') + row('Comp-off conversion','9 hrs = 1 day') + row('Approval required','Facility Manager');
+document.getElementById('costRules').innerHTML = row('Default service charge','18%') + row('Holiday wage multiplier','1.0×') + row('Billing cycle','Calendar month') + row('Currency','INR (₹)');
+document.getElementById('apprRules').innerHTML = row('Labour structure change','Cluster Manager → Ops Head') + row('Ad-hoc request','Facility Manager') + row('Invoice clarification','Finance') + row('Contract approval','Legal → Ops Head');
+</script>
+</body>
+</html>

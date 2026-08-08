@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Warehouses · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Warehouses</h1><div class="sub">Identity, labour structure, devices and operating configuration for every facility.</div></div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+          <button class="btn btn-primary">${''}Add warehouse</button>
+        </div>
+      </div>
+      <div id="whGrid" class="card-grid" style="grid-template-columns:repeat(3,1fr);"></div>
+      <div id="emptyState"></div>
+    </main>
+  </div>
+</div>
+<div class="drawer-scrim" id="drawerScrim"><div class="drawer" id="drawer" style="width:min(680px,96vw);"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [warehouses, staff, devices] = await Promise.all([api.listWarehouses(), api.listStaff(), api.listDevices()]);
+  document.getElementById('seedBtn').style.display = warehouses.length ? 'none':'';
+
+  if(!warehouses.length){
+    document.getElementById('emptyState').innerHTML = `<div class="panel state-block" style="padding:70px 20px;"><div class="state-icon">${icon('building')}</div><h3>No warehouses configured</h3><p>Add your first facility or load development data to preview this workspace.</p></div>`;
+    document.getElementById('whGrid').innerHTML=''; return;
+  }
+  document.getElementById('emptyState').innerHTML = '';
+
+  document.getElementById('whGrid').innerHTML = warehouses.map(w=>{
+    const active = staff.filter(s=>s.warehouseId===w.id && s.status==='ACTIVE').length;
+    const devCount = devices.filter(d=>d.warehouseId===w.id).length;
+    const pct = Math.round((active/w.approvedStrength)*100);
+    return `<div class="panel" style="padding:18px;cursor:pointer;" data-id="${w.id}">
+      <div class="flex-between mb-12">
+        <div><b>${w.name}</b><div class="cell-sub mono">${w.code} · ${w.city}, ${w.state}</div></div>
+        <span class="badge badge-${w.status==='OPERATIONAL'?'success':w.status==='SETUP'?'info':'warning'}">${w.status}</span>
+      </div>
+      <div class="progress mb-8"><div style="width:${Math.min(100,pct)}%"></div></div>
+      <div class="flex-between" style="font-size:var(--fs-xs);color:var(--text-tertiary);">
+        <span>${active} / ${w.approvedStrength} staff</span><span>${devCount} devices</span>
+      </div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('#whGrid [data-id]').forEach(el=> el.addEventListener('click', ()=> openWarehouse(warehouses.find(w=>w.id===el.dataset.id), staff, devices)));
+}
+
+function openWarehouse(w, staff, devices){
+  const scrim = document.getElementById('drawerScrim'), drawer = document.getElementById('drawer');
+  const active = staff.filter(s=>s.warehouseId===w.id && s.status==='ACTIVE').length;
+  const wDevices = devices.filter(d=>d.warehouseId===w.id);
+  drawer.innerHTML = `
+    <div class="drawer-head"><div><h3 style="font-size:16px;">${w.name}</h3><div class="cell-sub mono">${w.code}</div></div><button class="icon-btn" id="closeDrawer">${icon('x')}</button></div>
+    <div class="drawer-body">
+      <div class="tabs mb-16" id="wTabs">${['Identity','Labour Structure','Vendors','Working Hours','Attendance Config','Holiday Config','Overtime Config','Approval Config','Biometric Devices','Cost Config'].map((t,i)=>`<div class="tab ${i===0?'active':''}" data-tab="${t}">${t}</div>`).join('')}</div>
+      <div id="wTabContent"></div>
+    </div>
+    <div class="drawer-foot"><button class="btn btn-secondary" id="cancelDrawer">Close</button><button class="btn btn-primary">Save changes</button></div>`;
+  scrim.classList.add('show'); drawer.classList.add('show');
+  const close=()=>{ scrim.classList.remove('show'); drawer.classList.remove('show'); };
+  document.getElementById('closeDrawer').onclick=close; document.getElementById('cancelDrawer').onclick=close;
+  scrim.onclick=(e)=>{ if(e.target===scrim) close(); };
+
+  const field = (l,v)=> `<div class="field"><label>${l}</label><div class="input" style="display:flex;align-items:center;background:rgba(255,255,255,0.02);">${v}</div></div>`;
+  const panels = {
+    Identity: `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('Name', w.name)}${field('Code', w.code)}${field('City', w.city)}${field('State', w.state)}${field('Status', w.status)}${field('Approved strength', w.approvedStrength)}</div>`,
+    'Labour Structure': `<div class="state-block" style="padding:24px 10px;"><div class="state-icon">${icon('layers')}</div><h3>${active} of ${w.approvedStrength} approved seats filled</h3><p>Open the Labour Structure module to plan allocation by category and vendor.</p><a class="btn btn-secondary btn-sm" href="workforce-structure.html" style="margin-top:8px;">Open Labour Structure</a></div>`,
+    Vendors: `<div class="state-block" style="padding:24px 10px;"><div class="state-icon">${icon('truck')}</div><h3>Vendor mapping</h3><p>Manage vendors assigned to this facility.</p><a class="btn btn-secondary btn-sm" href="workforce-vendors.html" style="margin-top:8px;">Open Labour Vendors</a></div>`,
+    'Working Hours': `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('Shift start', w.workingHours.start)}${field('Shift end', w.workingHours.end)}${field('Shifts / day', w.workingHours.shifts)}${field('OT threshold', w.otThresholdHrs+' hrs')}</div>`,
+    'Attendance Config': `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('Grace period', '10 minutes')}${field('Manual attendance', 'Authorized In-Plant only')}${field('Minimum hours for full day', '8 hrs')}${field('Exception auto-flag', 'Enabled')}</div>`,
+    'Holiday Config': `<div class="state-block" style="padding:24px 10px;"><div class="state-icon">${icon('clock')}</div><h3>Holiday calendar</h3><p>No holidays configured for this facility yet.</p></div>`,
+    'Overtime Config': `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('OT threshold', w.otThresholdHrs+' hrs/day')}${field('OT rate', '1.3× base wage')}${field('Comp-off eligibility', 'Enabled')}${field('Approval required', 'Yes, Facility Manager')}</div>`,
+    'Approval Config': `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('Structure changes', 'Cluster Manager → Ops Head')}${field('Ad-hoc requests', 'Facility Manager')}${field('Overtime batches', 'Facility Manager')}${field('Invoice clarification', 'Finance')}</div>`,
+    'Biometric Devices': wDevices.length ? `<div class="table-wrap"><table class="dtable"><thead><tr><th>Device</th><th>Status</th></tr></thead><tbody>${wDevices.map(d=>`<tr><td>${d.name}</td><td><span class="badge badge-${d.connectionStatus==='CONNECTED'?'success':'neutral'}">${d.connectionStatus}</span></td></tr>`).join('')}</tbody></table></div>` : `<div class="state-block" style="padding:24px 10px;"><div class="state-icon">${icon('fingerprint')}</div><h3>No devices registered</h3></div>`,
+    'Cost Config': `<div class="card-grid" style="grid-template-columns:1fr 1fr;">${field('Service charge', '18%')}${field('Holiday wage multiplier', '1.0×')}${field('Invoice tolerance', '2.0% / ₹5,000')}${field('Billing cycle', 'Calendar month')}</div>`,
+  };
+  const setTab = t=> document.getElementById('wTabContent').innerHTML = panels[t];
+  setTab('Identity');
+  drawer.querySelectorAll('.tab').forEach(tab=> tab.addEventListener('click', ()=>{ drawer.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); tab.classList.add('active'); setTab(tab.dataset.tab); }));
+}
+
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

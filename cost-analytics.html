@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cost Analytics · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+<style>
+  .bar-chart{ display:flex; align-items:flex-end; gap:8px; height:180px; padding:10px 4px 0; }
+  .bar-chart .bar{ flex:1; background:linear-gradient(180deg,var(--accent),var(--accent-dim)); border-radius:6px 6px 2px 2px; position:relative; transition:height 500ms var(--ease-out); }
+  .bar-chart .bar-label{ position:absolute; bottom:-20px; left:0; right:0; text-align:center; font-size:9.5px; color:var(--text-tertiary); }
+  .legend-dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Cost Analytics</h1><div class="sub">Trend, projection and distribution across warehouse, vendor and category views.</div></div>
+        <div class="pillbar" id="viewPicker">
+          <div class="pill active" data-v="Daily">Daily</div><div class="pill" data-v="Weekly">Weekly</div><div class="pill" data-v="Monthly">Monthly</div>
+        </div>
+      </div>
+
+      <div class="card-grid mb-20" style="grid-template-columns:1.4fr 1fr;align-items:start;">
+        <div class="panel">
+          <div class="panel-head"><div><h3>Cost Trend</h3><div class="desc">Projected vs. actual accrual</div></div></div>
+          <div class="panel-body"><div class="bar-chart" id="trendChart" style="position:relative;"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h3>Category Cost Distribution</h3></div></div>
+          <div class="panel-body" id="catDonut"></div>
+        </div>
+      </div>
+
+      <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="panel">
+          <div class="panel-head"><div><h3>Vendor Cost Distribution</h3></div></div>
+          <div class="panel-body" id="vendorBars"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h3>Overtime & Service Charge Cost</h3></div></div>
+          <div class="panel-body" id="otService"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+mountShell();
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [accruals, vendors, staff] = await Promise.all([api.listAccruals(), api.listVendors(), api.listStaff()]);
+  if(!accruals.length){
+    document.querySelectorAll('.panel-body').forEach(p=> p.innerHTML = `<div class="state-block" style="padding:24px 10px;"><div class="state-icon">${icon('trending')}</div><h3>No cost data yet</h3><p>Load development data from the Overview page to preview analytics.</p></div>`);
+    return;
+  }
+
+  // Trend: bucket by day
+  const byDay = {};
+  accruals.forEach(a=>{ const d = new Date(a.date).toLocaleDateString('en-IN',{weekday:'short'}); byDay[d]=(byDay[d]||0)+a.total; });
+  const days = Object.keys(byDay);
+  const max = Math.max(...Object.values(byDay), 1);
+  document.getElementById('trendChart').innerHTML = days.map(d=> `
+    <div class="bar" style="height:${Math.max(6,(byDay[d]/max)*160)}px;"><span class="bar-label">${d}</span></div>`).join('');
+
+  // Category donut (via CSS conic-gradient)
+  const catTotals = { SKILLED:0, SEMI_SKILLED:0, UNSKILLED:0 };
+  accruals.forEach(a=>{
+    const s = staff.find(s=>s.id===a.staffId);
+    if(s) catTotals[s.category] += a.total;
+  });
+  const total = Object.values(catTotals).reduce((a,b)=>a+b,0) || 1;
+  const colors = { SKILLED:'#7C6FFF', SEMI_SKILLED:'#60A5FA', UNSKILLED:'#2DD4BF' };
+  let acc = 0;
+  const stops = Object.entries(catTotals).map(([k,v])=>{
+    const pct = v/total*100; const seg = `${colors[k]} ${acc}% ${acc+pct}%`; acc+=pct; return seg;
+  }).join(', ');
+  document.getElementById('catDonut').innerHTML = `
+    <div style="display:flex;align-items:center;gap:24px;">
+      <div style="width:130px;height:130px;border-radius:50%;background:conic-gradient(${stops});flex-shrink:0;position:relative;">
+        <div style="position:absolute;inset:18px;border-radius:50%;background:var(--bg-raised);"></div>
+      </div>
+      <div>${Object.entries(catTotals).map(([k,v])=> `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:8px;font-size:var(--fs-xs);">
+          <span><span class="legend-dot" style="background:${colors[k]}"></span>${k.replace('_',' ')}</span>
+          <span class="mono">₹${Math.round(v).toLocaleString('en-IN')}</span>
+        </div>`).join('')}</div>
+    </div>`;
+
+  // Vendor bars
+  const byVendor = {};
+  accruals.forEach(a=>{ const s = staff.find(s=>s.id===a.staffId); if(!s) return; byVendor[s.vendorId]=(byVendor[s.vendorId]||0)+a.total; });
+  const top = Object.entries(byVendor).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const vmax = Math.max(...top.map(t=>t[1]),1);
+  document.getElementById('vendorBars').innerHTML = top.map(([id,v])=>{
+    const name = vendors.find(x=>x.id===id)?.name || 'Unknown';
+    return `<div class="mb-12"><div class="flex-between" style="font-size:var(--fs-xs);margin-bottom:5px;"><span>${name}</span><span class="mono">₹${Math.round(v).toLocaleString('en-IN')}</span></div><div class="progress"><div style="width:${(v/vmax)*100}%;background:var(--accent-2);"></div></div></div>`;
+  }).join('');
+
+  // OT & service
+  const ot = accruals.reduce((s,a)=>s+a.overtimeComp,0), svc = accruals.reduce((s,a)=>s+a.serviceCharge,0), base = accruals.reduce((s,a)=>s+a.baseWage,0);
+  document.getElementById('otService').innerHTML = `
+    <div class="mb-16">${bar('Base Wage', base, base, 'var(--info)')}</div>
+    <div class="mb-16">${bar('Overtime Compensation', ot, base, 'var(--warning)')}</div>
+    <div>${bar('Service Charge', svc, base, 'var(--accent-2)')}</div>`;
+  function bar(label,val,ref,color){
+    return `<div class="flex-between" style="font-size:var(--fs-xs);margin-bottom:5px;"><span>${label}</span><span class="mono">₹${Math.round(val).toLocaleString('en-IN')}</span></div><div class="progress"><div style="width:${Math.min(100,(val/ref)*100)}%;background:${color};"></div></div>`;
+  }
+}
+boot();
+</script>
+</body>
+</html>

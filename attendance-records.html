@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Attendance Records · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Attendance Records</h1><div class="sub">Historical, processed attendance across the selected date range.</div></div>
+        <div class="page-header-actions">
+          <input type="date" class="input" style="width:150px;" />
+          <input type="date" class="input" style="width:150px;" />
+        </div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [staff, warehouses] = await Promise.all([api.listStaff(), api.listWarehouses()]);
+  const active = staff.filter(s=>s.status==='ACTIVE');
+  if(!active.length){
+    document.getElementById('tableRoot').innerHTML = `<div class="state-block" style="padding:70px 20px;"><div class="state-icon">${icon('clock')}</div><h3>No attendance history</h3><p>Processed attendance records will appear here once data is available.</p></div>`;
+    return;
+  }
+  const rows = active.slice(0,180).map((s,i)=>{
+    const wh = warehouses.find(w=>w.id===s.warehouseId);
+    const d = new Date(); d.setDate(d.getDate()-Math.floor(Math.random()*7));
+    const hrs = (7.5+Math.random()*2.2).toFixed(1);
+    return { id:'REC-'+i, staffName:s.name, staffId:s.id, whName: wh?wh.code:'—', date:d.toISOString(),
+      inTime:'08:0'+Math.floor(Math.random()*9), outTime:'17:'+(10+Math.floor(Math.random()*40)), hours:hrs,
+      status: hrs<8 ? 'SHORT':'FULL' };
+  });
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'staffName', label:'Staff', sortable:true, render:r=> `<div><b>${r.staffName}</b><div class="cell-sub mono">${r.staffId}</div></div>` },
+      { key:'whName', label:'Warehouse' },
+      { key:'date', label:'Date', sortable:true, render:r=> new Date(r.date).toLocaleDateString() },
+      { key:'inTime', label:'IN', render:r=> `<span class="mono">${r.inTime}</span>` },
+      { key:'outTime', label:'OUT', render:r=> `<span class="mono">${r.outTime}</span>` },
+      { key:'hours', label:'Hours', sortable:true, render:r=> `<span class="mono">${r.hours}h</span>` },
+      { key:'status', label:'Status', render:r=> `<span class="badge badge-${r.status==='FULL'?'success':'warning'}">${r.status} DAY</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:12, searchKeys:['staffName'],
+    emptyState:{ icon:'clock', title:'No records', desc:'Attendance history will appear here.' },
+  });
+}
+boot();
+</script>
+</body>
+</html>

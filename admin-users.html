@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Users & Roles · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Users & Roles</h1><div class="sub">Centralized permission configuration. Navigation and actions adapt to role — permissions are enforced, not just visually hidden.</div></div>
+        <button class="btn btn-primary">${''}Invite user</button>
+      </div>
+
+      <div class="panel mb-20">
+        <div class="panel-head"><div><h3>Role Permission Matrix</h3><div class="desc">Module access by role</div></div></div>
+        <div class="panel-body no-pad">
+          <div class="table-wrap"><table class="dtable" id="matrix"></table></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Active Users</h3></div>
+        <div class="panel-body no-pad">
+          <table class="dtable">
+            <thead><tr><th>User</th><th>Role</th><th>Warehouses</th><th>Status</th></tr></thead>
+            <tbody id="userRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { icon } from './js/components/icons.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+const roles = ['3PL CEO','Ops Head','Cluster Manager','Facility Manager','Labour Vendor','Compliance','Legal','Finance','DNA','Admin'];
+const modules = ['Workforce','Attendance','Cost','Procurement','Governance','Analytics','Administration'];
+const access = { '3PL CEO':[1,1,1,1,1,1,0], 'Ops Head':[1,1,1,1,1,1,0], 'Cluster Manager':[1,1,1,0,1,1,0], 'Facility Manager':[1,1,1,0,1,0,0], 'Labour Vendor':[0,0,0,1,0,0,0], 'Compliance':[0,0,0,0,1,0,0], 'Legal':[0,0,0,0,1,0,0], 'Finance':[0,0,1,1,1,1,0], 'DNA':[1,1,1,1,1,1,0], 'Admin':[1,1,1,1,1,1,1] };
+
+document.getElementById('matrix').innerHTML = `
+  <thead><tr><th>Role</th>${modules.map(m=>`<th style="text-align:center;">${m}</th>`).join('')}</tr></thead>
+  <tbody>${roles.map(r=> `<tr><td><b>${r}</b></td>${access[r].map(v=>`<td style="text-align:center;">${v?`<span style="color:var(--success);">${icon('check')}</span>`:`<span style="color:var(--text-disabled);">${icon('x')}</span>`}</td>`).join('')}</tr>`).join('')}</tbody>`;
+
+const users = [
+  { name:'Facility Manager', email:'facility.manager@labourpro', role:'Facility Manager', wh:'BLR-1' },
+  { name:'Ops Head', email:'ops.head@labourpro', role:'Ops Head', wh:'All' },
+  { name:'System Administrator', email:'admin@labourpro', role:'Admin', wh:'All' },
+  { name:'Suvidha Manpower — Vendor Portal', email:'vendor.suvidha@labourpro', role:'Labour Vendor', wh:'BOM-2, DEL-3' },
+];
+document.getElementById('userRows').innerHTML = users.map(u=> `
+  <tr><td><div style="display:flex;align-items:center;gap:10px;"><span class="avatar-sm">${u.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</span><div><b>${u.name}</b><div class="cell-sub">${u.email}</div></div></div></td>
+  <td><span class="badge badge-neutral">${u.role}</span></td><td>${u.wh}</td><td><span class="badge badge-success">Active</span></td></tr>`).join('');
+</script>
+</body>
+</html>

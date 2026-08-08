@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Labour Analytics · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Labour Analytics</h1><div class="sub">Category mix, deployment type and biometric enrollment coverage across the workforce.</div></div></div>
+      <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="panel"><div class="panel-head"><h3>Category Mix</h3></div><div class="panel-body" id="catMix"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Deployment Type</h3></div><div class="panel-body" id="deployMix"></div></div>
+        <div class="panel" style="grid-column:span 2;"><div class="panel-head"><h3>Biometric Enrollment Coverage</h3></div><div class="panel-body" id="bioCoverage"></div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+async function boot(){
+  const [staff, warehouses] = await Promise.all([api.listStaff(), api.listWarehouses()]);
+  if(!staff.length){
+    ['catMix','deployMix','bioCoverage'].forEach(id=> document.getElementById(id).innerHTML = `<div class="state-block" style="padding:30px 10px;"><div class="state-icon">${icon('users')}</div><h3>No workforce data</h3><p>Load development data from the Overview page.</p></div>`);
+    return;
+  }
+  const cats = { SKILLED:0, SEMI_SKILLED:0, UNSKILLED:0 };
+  staff.forEach(s=> cats[s.category]++);
+  document.getElementById('catMix').innerHTML = Object.entries(cats).map(([k,v])=> bar(k.replace('_',' '), v, staff.length)).join('');
+
+  const dep = { IN_PLANT:0, AD_HOC:0 };
+  staff.forEach(s=> dep[s.deployment]++);
+  document.getElementById('deployMix').innerHTML = Object.entries(dep).map(([k,v])=> bar(k.replace('_',' '), v, staff.length)).join('');
+
+  document.getElementById('bioCoverage').innerHTML = warehouses.map(w=>{
+    const wStaff = staff.filter(s=>s.warehouseId===w.id);
+    const enrolled = wStaff.filter(s=>s.biometricEnrolled).length;
+    const pct = wStaff.length ? Math.round((enrolled/wStaff.length)*100):0;
+    return `<div class="mb-14"><div class="flex-between" style="font-size:var(--fs-xs);margin-bottom:5px;"><span>${w.name}</span><span class="mono">${enrolled}/${wStaff.length} (${pct}%)</span></div><div class="progress"><div style="width:${pct}%;background:var(--accent-2);"></div></div></div>`;
+  }).join('');
+
+  function bar(label,val,total){ const pct = Math.round((val/total)*100); return `<div class="mb-14"><div class="flex-between" style="font-size:var(--fs-xs);margin-bottom:5px;"><span>${label}</span><span class="mono">${val} (${pct}%)</span></div><div class="progress"><div style="width:${pct}%;"></div></div></div>`; }
+}
+boot();
+</script>
+</body>
+</html>

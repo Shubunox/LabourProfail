@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Labour Transfers · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Labour Transfers</h1><div class="sub">Move staff between warehouses. Transfers update workforce mapping used for attendance validation once approved.</div></div>
+        <button class="btn btn-primary" id="newBtn">New transfer</button>
+      </div>
+      <div class="panel state-block" style="padding:70px 20px;" id="empty">
+        <div class="state-icon">${''}</div>
+        <h3>No transfers in progress</h3>
+        <p>Staff transfers between warehouses will appear here with source, destination and approval status.</p>
+      </div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal"><div class="panel-head"><h3>New labour transfer</h3><button class="icon-btn" id="closeModal"></button></div>
+  <div class="panel-body">
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Source warehouse <span class="req">*</span></label><select class="select" id="srcWh"></select></div>
+      <div class="field"><label>Destination warehouse <span class="req">*</span></label><select class="select" id="dstWh"></select></div>
+    </div>
+    <div class="field mb-16"><label>Staff <span class="req">*</span></label><select class="select" id="staffSel"></select></div>
+    <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+      <div class="field"><label>Transfer start</label><input type="date" class="input"/></div>
+      <div class="field"><label>Transfer end</label><input type="date" class="input"/></div>
+    </div>
+    <div class="field"><label>Reason <span class="req">*</span></label><textarea class="input" placeholder="Reason for transfer…"></textarea></div>
+  </div>
+  <div class="drawer-foot" style="border-top:1px solid var(--border-soft);"><button class="btn btn-secondary" id="cancelModal">Cancel</button><button class="btn btn-primary" id="submitTransfer">Submit for approval</button></div>
+</div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+document.getElementById('empty').querySelector('.state-icon').innerHTML = icon('arrows');
+document.getElementById('closeModal').innerHTML = icon('x');
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [warehouses, staff] = await Promise.all([api.listWarehouses(), api.listStaff()]);
+  document.getElementById('srcWh').innerHTML = warehouses.map(w=>`<option value="${w.id}">${w.name}</option>`).join('') || '<option>No warehouses</option>';
+  document.getElementById('dstWh').innerHTML = warehouses.map(w=>`<option value="${w.id}">${w.name}</option>`).join('') || '<option>No warehouses</option>';
+  document.getElementById('staffSel').innerHTML = staff.slice(0,60).map(s=>`<option value="${s.id}">${s.name} (${s.id})</option>`).join('') || '<option>No staff</option>';
+}
+document.getElementById('newBtn').addEventListener('click', ()=> document.getElementById('modalScrim').classList.add('show'));
+document.getElementById('closeModal').addEventListener('click', ()=> document.getElementById('modalScrim').classList.remove('show'));
+document.getElementById('cancelModal').addEventListener('click', ()=> document.getElementById('modalScrim').classList.remove('show'));
+document.getElementById('submitTransfer').addEventListener('click', ()=>{ document.getElementById('modalScrim').classList.remove('show'); toast.show({type:'success', title:'Transfer submitted', msg:'Routed to the Approval Center.'}); });
+boot();
+</script>
+</body>
+</html>

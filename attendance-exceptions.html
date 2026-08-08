@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exceptions · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Attendance Exceptions</h1><div class="sub">Missing punches, invalid attendance and workforce-limit breaches awaiting review.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="pillbar mb-16" id="statusFilter">
+        <div class="pill active" data-v="OPEN">Open</div>
+        <div class="pill" data-v="RESOLVED">Resolved</div>
+        <div class="pill" data-v="ALL">All</div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal" id="modal"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+let staff=[], warehouses=[], all=[], statusFilter='OPEN';
+const typeLabel = { MISSING_IN:'Missing IN', MISSING_OUT:'Missing OUT', INSUFFICIENT_HOURS:'Insufficient hours', INVALID_ATTENDANCE:'Invalid attendance', DEVICE_MISMATCH:'Device mismatch', WAREHOUSE_MISMATCH:'Warehouse mismatch', WORKFORCE_LIMIT_EXCEEDED:'Workforce limit exceeded' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [ex, s, w] = await Promise.all([api.listExceptions(), api.listStaff(), api.listWarehouses()]);
+  all = ex; staff = s; warehouses = w;
+  document.getElementById('seedBtn').style.display = ex.length ? 'none':'';
+  renderTable();
+}
+
+function renderTable(){
+  const rows = (statusFilter==='ALL' ? all : all.filter(e=>e.status===statusFilter)).map(e=>{
+    const st = staff.find(s=>s.id===e.staffId);
+    const wh = warehouses.find(w=>w.id===e.warehouseId);
+    return { ...e, staffName: st?st.name:'Unknown', whName: wh?wh.name:'—' };
+  });
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'staffName', label:'Staff', sortable:true, render:r=> `<div><b>${r.staffName}</b><div class="cell-sub mono">${r.staffId}</div></div>` },
+      { key:'type', label:'Exception Type', sortable:true, render:r=> `<span class="badge badge-warning">${typeLabel[r.type]}</span>` },
+      { key:'whName', label:'Warehouse' },
+      { key:'date', label:'Date', sortable:true, render:r=> new Date(r.date).toLocaleDateString() },
+      { key:'status', label:'Status', render:r=> `<span class="badge badge-${r.status==='OPEN'?'error':'success'}">${r.status}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:10, searchKeys:['staffName','type'],
+    onRowClick: openResolve,
+    emptyState:{ icon:'alertCircle', title:'No exceptions', desc:'Attendance exceptions requiring review will appear here.' },
+  });
+}
+
+document.querySelectorAll('#statusFilter .pill').forEach(p=> p.addEventListener('click', ()=>{
+  document.querySelectorAll('#statusFilter .pill').forEach(x=>x.classList.remove('active')); p.classList.add('active');
+  statusFilter = p.dataset.v; renderTable();
+}));
+
+function openResolve(e){
+  if(e.status==='RESOLVED'){
+    showModal(`
+      <div class="panel-head"><h3>Exception resolved</h3><button class="icon-btn" id="closeModal">${icon('x')}</button></div>
+      <div class="panel-body">
+        <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+          ${field('Action', e.resolution.action)}${field('User', e.resolution.user)}
+          ${field('Reason', e.resolution.reason)}${field('Timestamp', new Date(e.resolution.timestamp).toLocaleString())}
+        </div>
+      </div>`);
+    return;
+  }
+  showModal(`
+    <div class="panel-head"><h3>Resolve exception — ${typeLabel[e.type]}</h3><button class="icon-btn" id="closeModal">${icon('x')}</button></div>
+    <div class="panel-body">
+      <div class="field mb-16"><label>Action <span class="req">*</span></label>
+        <select class="select" id="actionSel">
+          <option>Approve as authorized manual entry</option>
+          <option>Request re-punch from staff</option>
+          <option>Escalate to facility manager</option>
+          <option>Mark as vendor-side error</option>
+        </select>
+      </div>
+      <div class="field mb-16"><label>Reason <span class="req">*</span></label><textarea class="input" id="reasonInput" placeholder="Explain the resolution for audit purposes…"></textarea></div>
+      <div class="hint">This resolution will be recorded with your user ID and a timestamp in the audit trail.</div>
+    </div>
+    <div class="drawer-foot" style="border-top:1px solid var(--border-soft);">
+      <button class="btn btn-secondary" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="confirmResolve">Resolve exception</button>
+    </div>`);
+  document.getElementById('confirmResolve').addEventListener('click', async ()=>{
+    const reason = document.getElementById('reasonInput').value.trim();
+    if(!reason){ toast.show({type:'warning', title:'Reason required'}); return; }
+    await api.resolveException(e.id, { action:document.getElementById('actionSel').value, reason, user:'facility.manager@labourpro', timestamp:new Date().toISOString() });
+    closeModal(); toast.show({type:'success', title:'Exception resolved'}); boot();
+  });
+}
+function field(l,v){ return `<div class="field"><label>${l}</label><div class="input" style="display:flex;align-items:center;background:rgba(255,255,255,0.02);font-size:var(--fs-xs);">${v}</div></div>`; }
+function showModal(html){
+  document.getElementById('modal').innerHTML = html;
+  document.getElementById('modalScrim').classList.add('show');
+  document.getElementById('closeModal')?.addEventListener('click', closeModal);
+  document.getElementById('cancelModal')?.addEventListener('click', closeModal);
+}
+function closeModal(){ document.getElementById('modalScrim').classList.remove('show'); }
+document.getElementById('modalScrim').addEventListener('click', (e)=>{ if(e.target.id==='modalScrim') closeModal(); });
+
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

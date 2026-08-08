@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Compensatory Off · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Compensatory Off</h1><div class="sub">Comp-off balances accrued from overtime, awaiting scheduling or lapse.</div></div></div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [ot, staff] = await Promise.all([api.listOvertime(), api.listStaff()]);
+  const compRows = ot.filter(o=>o.compensationType==='COMP_OFF').map(o=>({
+    ...o, staffName: staff.find(s=>s.id===o.staffId)?.name||'Unknown',
+    balanceDays: (o.extraHrs/9).toFixed(2),
+  }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'staffName', label:'Staff', sortable:true, render:r=> `<div><b>${r.staffName}</b><div class="cell-sub mono">${r.staffId}</div></div>` },
+      { key:'date', label:'Earned', sortable:true, render:r=> new Date(r.date).toLocaleDateString() },
+      { key:'extraHrs', label:'Extra Hours', sortable:true },
+      { key:'balanceDays', label:'Comp-Off Balance', sortable:true, render:r=> `<b class="mono">${r.balanceDays} days</b>` },
+      { key:'status', label:'Status', render:r=> `<span class="badge badge-info">${r.status}</span>` },
+    ],
+    rows: compRows, getId:r=>r.id, pageSize:12, searchKeys:['staffName'],
+    emptyState:{ icon:'refresh', title:'No comp-off balances', desc:'Comp-off entitlements from approved overtime will appear here.' },
+  });
+}
+boot();
+</script>
+</body>
+</html>

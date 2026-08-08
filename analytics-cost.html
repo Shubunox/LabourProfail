@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cost Analytics · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Cost Analytics</h1><div class="sub">Financial analytics live in the Workforce Cost module — full trend, vendor and category breakdowns.</div></div>
+        <a class="btn btn-primary" href="cost-analytics.html">Open Cost Analytics</a>
+      </div>
+      <div class="panel state-block" style="padding:70px 20px;">
+        <div class="state-icon" id="ic"></div>
+        <h3>Detailed cost analytics workspace</h3>
+        <p>Trend charts, projected vs. actual, vendor and category distribution, and overtime/service-charge breakdowns are available in the dedicated Cost Analytics workspace under Workforce Cost.</p>
+        <a class="btn btn-secondary btn-sm" href="cost-analytics.html" style="margin-top:12px;">Go there now</a>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { icon } from './js/components/icons.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+document.getElementById('ic').innerHTML = icon('pieChart');
+</script>
+</body>
+</html>

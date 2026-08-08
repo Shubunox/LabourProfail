@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vendor Invoices · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Vendor Invoices</h1><div class="sub">Automated matching of calculated billable amounts against submitted vendor invoices.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="panel mb-20">
+        <div class="panel-head"><div><h3>Tolerance configuration</h3><div class="desc">Applied automatically during matching</div></div></div>
+        <div class="panel-body" style="display:flex;gap:24px;">
+          <div class="field" style="max-width:220px;"><label>Absolute tolerance</label><div class="input" style="display:flex;align-items:center;">₹5,000</div></div>
+          <div class="field" style="max-width:220px;"><label>Percentage tolerance</label><div class="input" style="display:flex;align-items:center;">2.0%</div></div>
+          <a class="btn btn-ghost btn-sm" href="admin-settings.html" style="align-self:flex-end;">Edit in Settings</a>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal" id="modal" style="width:min(560px,92vw);"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+const matchTone = { MATCHED:'success', MATCHED_TOLERANCE:'info', CLARIFICATION_REQUIRED:'error' };
+const matchLabel = { MATCHED:'MATCHED', MATCHED_TOLERANCE:'MATCHED — TOLERANCE', CLARIFICATION_REQUIRED:'CLARIFICATION REQUIRED' };
+let vendors=[];
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [invoices, v] = await Promise.all([api.listInvoices(), api.listVendors()]);
+  vendors=v;
+  document.getElementById('seedBtn').style.display = invoices.length ? 'none':'';
+
+  const rows = invoices.map(i=>({ ...i, vendorName: vendors.find(v=>v.id===i.vendorId)?.name || '—', diff: i.invoicedAmount-i.calculatedAmount }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'id', label:'Invoice', sortable:true, render:r=> `<span class="cell-id">${r.id}</span>` },
+      { key:'vendorName', label:'Vendor', sortable:true },
+      { key:'calculatedAmount', label:'Calculated', sortable:true, render:r=> `<span class="mono">₹${r.calculatedAmount.toLocaleString('en-IN')}</span>` },
+      { key:'invoicedAmount', label:'Invoiced', sortable:true, render:r=> `<span class="mono">₹${r.invoicedAmount.toLocaleString('en-IN')}</span>` },
+      { key:'diff', label:'Difference', sortable:true, render:r=> `<span class="mono" style="color:${r.diff===0?'var(--text-secondary)':r.diff>0?'var(--error)':'var(--warning)'}">${r.diff>=0?'+':''}₹${r.diff.toLocaleString('en-IN')}</span>` },
+      { key:'matchStatus', label:'Match Status', sortable:true, render:r=> `<span class="badge badge-${matchTone[r.matchStatus]}">${matchLabel[r.matchStatus]}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:10, searchKeys:['id','vendorName'],
+    filters:[{ key:'matchStatus', label:'Match status', options:Object.keys(matchLabel).map(v=>({value:v,label:matchLabel[v]})) }],
+    onRowClick: openDetail,
+    emptyState:{ icon:'receipt', title:'No invoices yet', desc:'Vendor invoices uploaded against a billable schedule will appear here for automatic reconciliation.' },
+  });
+}
+
+function openDetail(r){
+  const pct = ((Math.abs(r.diff)/r.calculatedAmount)*100).toFixed(2);
+  document.getElementById('modal').innerHTML = `
+    <div class="panel-head"><h3>Reconciliation — ${r.id}</h3><button class="icon-btn" id="closeModal">${icon('x')}</button></div>
+    <div class="panel-body">
+      <div class="mb-16"><span class="badge badge-${matchTone[r.matchStatus]}">${matchLabel[r.matchStatus]}</span></div>
+      <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+        <div style="text-align:center;padding:16px;border:1px solid var(--border);border-radius:10px;"><div class="cell-sub mb-8">Calculated (system)</div><div class="mono" style="font-size:20px;font-weight:650;">₹${r.calculatedAmount.toLocaleString('en-IN')}</div></div>
+        <div style="text-align:center;padding:16px;border:1px solid var(--border);border-radius:10px;"><div class="cell-sub mb-8">Invoiced (vendor)</div><div class="mono" style="font-size:20px;font-weight:650;">₹${r.invoicedAmount.toLocaleString('en-IN')}</div></div>
+      </div>
+      <div class="flex-between mb-16"><span class="text-secondary" style="font-size:var(--fs-sm);">Deviation</span><span class="mono">${pct}%</span></div>
+      ${r.matchStatus==='CLARIFICATION_REQUIRED' ? `
+        <div class="field mb-16"><label>Clarification note</label><textarea class="input" placeholder="Record why this invoice is outside tolerance and next steps…"></textarea></div>
+        <button class="btn btn-primary" style="width:100%;">Send for vendor clarification</button>` :
+        `<div class="text-tertiary" style="font-size:var(--fs-xs);">This invoice is within your configured tolerance and can proceed to approval. Amounts are not marked genuine without backend validation.</div>`}
+    </div>`;
+  document.getElementById('modalScrim').classList.add('show');
+  document.getElementById('closeModal').onclick = ()=> document.getElementById('modalScrim').classList.remove('show');
+}
+document.getElementById('modalScrim').addEventListener('click', (e)=>{ if(e.target.id==='modalScrim') document.getElementById('modalScrim').classList.remove('show'); });
+
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

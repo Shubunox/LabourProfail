@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Live Attendance · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Live Attendance</h1><div class="sub">Today's punches across all warehouses, as processed by the attendance engine.</div></div>
+        <a class="btn btn-secondary" href="biometric-terminal.html">Open a device terminal</a>
+      </div>
+      <div class="card-grid mb-20" style="grid-template-columns:repeat(4,1fr);" id="stats"></div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [staff, warehouses] = await Promise.all([api.listStaff(), api.listWarehouses()]);
+  const active = staff.filter(s=>s.status==='ACTIVE');
+
+  if(!active.length){
+    document.getElementById('stats').innerHTML='';
+    document.getElementById('tableRoot').innerHTML = `<div class="state-block" style="padding:70px 20px;"><div class="state-icon">${icon('activity')}</div><h3>No attendance activity yet</h3><p>Live punches from connected biometric devices will stream here.</p></div>`;
+    return;
+  }
+  // Synthesize a plausible "today" feed purely for interface preview, clearly derived from dev staff records.
+  const rows = active.slice(0,140).map((s,i)=>{
+    const wh = warehouses.find(w=>w.id===s.warehouseId);
+    const hourIn = 7 + Math.floor(Math.random()*2), minIn = Math.floor(Math.random()*60);
+    return { id:'EVT-'+i, staffName:s.name, staffId:s.id, whName: wh?wh.code:'—',
+      eventType: Math.random()>0.5?'IN':'OUT', method: Math.random()>0.1?'BIOMETRIC':'MANUAL_AUTHORIZED',
+      time: `${String(hourIn).padStart(2,'0')}:${String(minIn).padStart(2,'0')}`, state: Math.random()>0.06?'PROCESSED':'EXCEPTION' };
+  });
+  document.getElementById('stats').innerHTML = [
+    ['Punches Today', rows.length, 'info'], ['Biometric', rows.filter(r=>r.method==='BIOMETRIC').length, 'success'],
+    ['Manual (Authorized)', rows.filter(r=>r.method==='MANUAL_AUTHORIZED').length, 'warning'], ['Exceptions', rows.filter(r=>r.state==='EXCEPTION').length, 'error'],
+  ].map(([l,v,t])=> `<div class="kpi-card"><div class="kpi-label mb-8">${l}</div><div class="kpi-value" style="font-size:20px;">${v}</div></div>`).join('');
+
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'staffName', label:'Staff', sortable:true, render:r=> `<div><b>${r.staffName}</b><div class="cell-sub mono">${r.staffId}</div></div>` },
+      { key:'whName', label:'Warehouse' },
+      { key:'eventType', label:'Event', render:r=> `<span class="badge badge-${r.eventType==='IN'?'success':'neutral'}">${r.eventType}</span>` },
+      { key:'time', label:'Time', sortable:true, render:r=> `<span class="mono">${r.time}</span>` },
+      { key:'method', label:'Method', render:r=> `<span class="badge badge-${r.method==='BIOMETRIC'?'accent':'info'}">${r.method.replace('_',' ')}</span>` },
+      { key:'state', label:'State', render:r=> `<span class="badge badge-${r.state==='PROCESSED'?'success':'warning'}">${r.state}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:12, searchKeys:['staffName'],
+    emptyState:{ icon:'activity', title:'No punches yet', desc:'Live attendance events will appear here.' },
+  });
+}
+boot();
+</script>
+</body>
+</html>

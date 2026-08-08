@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>System Settings · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content" style="max-width:920px;">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>System Settings</h1><div class="sub">Configuration surface for every operational, financial and integration rule in LabourPro.</div></div></div>
+
+      <div style="display:grid;grid-template-columns:200px 1fr;gap:20px;align-items:start;">
+        <div class="panel" style="padding:8px;">
+          <div id="settingsNav"></div>
+        </div>
+        <div class="panel"><div class="panel-body" id="settingsBody"></div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+const sections = {
+  'General': `<div class="field mb-16"><label>Organization name</label><input class="input" value="LabourPro Enterprise Network"/></div><div class="field mb-16"><label>Default timezone</label><select class="select"><option>Asia/Kolkata (IST)</option></select></div><div class="field"><label>Default currency</label><select class="select"><option>INR (₹)</option></select></div>`,
+  'Appearance': `<div class="field mb-16"><label>Theme</label><select class="select"><option>Dark (default)</option></select></div><div class="field"><label>Table density</label><select class="select"><option>Comfortable</option><option>Compact</option></select></div>`,
+  'Warehouses': `<p class="text-tertiary mb-12" style="font-size:var(--fs-xs);">Manage facility records in the dedicated Warehouses module.</p><a class="btn btn-secondary btn-sm" href="admin-warehouses.html">Open Warehouses</a>`,
+  'Working Hours': `<div class="field mb-16"><label>Default shift start</label><input class="input" value="08:00"/></div><div class="field"><label>Default shift end</label><input class="input" value="20:00"/></div>`,
+  'Attendance Rules': `<div class="field mb-16"><label>Grace period (minutes)</label><input class="input" value="10"/></div><div class="field"><label>Minimum hours for full day</label><input class="input" value="8"/></div>`,
+  'Overtime Rules': `<div class="field mb-16"><label>Daily OT threshold (hours)</label><input class="input" value="9"/></div><div class="field"><label>OT rate multiplier</label><input class="input" value="1.3"/></div>`,
+  'Holiday Calendar': `<p class="text-tertiary" style="font-size:var(--fs-xs);">No holidays configured. Add facility-specific or national holidays to control holiday wage calculation.</p>`,
+  'Cost Rules': `<div class="field mb-16"><label>Default service charge (%)</label><input class="input" value="18"/></div><div class="field"><label>Holiday wage multiplier</label><input class="input" value="1.0"/></div>`,
+  'Approval Rules': `<p class="text-tertiary" style="font-size:var(--fs-xs);">Configure approval chains per request type in the Approval Center.</p><a class="btn btn-secondary btn-sm" href="governance-approvals.html" style="margin-top:8px;">Open Approval Center</a>`,
+  'Invoice Tolerance': `<div class="field mb-16"><label>Absolute tolerance (₹)</label><input class="input" value="5000"/></div><div class="field"><label>Percentage tolerance (%)</label><input class="input" value="2.0"/></div>`,
+  'Biometric Devices': `<div class="field mb-16"><label>Device gateway base URL</label><input class="input" placeholder="Not configured — see js/biometric/device-config.js"/></div><p class="text-tertiary" style="font-size:var(--fs-xs);">Connecting your real biometric machine requires configuring the device gateway endpoint here.</p>`,
+  'Notifications': `<div class="field mb-16"><label>Approval alerts</label><select class="select"><option>Enabled</option></select></div><div class="field"><label>Compliance expiry alerts</label><select class="select"><option>30 days before expiry</option></select></div>`,
+  'Users': `<a class="btn btn-secondary btn-sm" href="admin-users.html">Open Users & Roles</a>`,
+  'Roles': `<a class="btn btn-secondary btn-sm" href="admin-users.html">Open Users & Roles</a>`,
+  'Permissions': `<a class="btn btn-secondary btn-sm" href="admin-users.html">Open Permission Matrix</a>`,
+  'Integrations': `<p class="text-tertiary" style="font-size:var(--fs-xs);">No third-party integrations configured yet.</p>`,
+  'Audit': `<a class="btn btn-secondary btn-sm" href="governance-audit.html">Open Audit Trail</a>`,
+};
+const nav = document.getElementById('settingsNav');
+nav.innerHTML = Object.keys(sections).map((s,i)=> `<div class="nav-item ${i===0?'active':''}" data-s="${s}" style="margin-bottom:2px;"><span>${s}</span></div>`).join('');
+function setSection(s){ document.getElementById('settingsBody').innerHTML = `<div class="section-title">${s}</div>${sections[s]}`; }
+setSection('General');
+nav.querySelectorAll('[data-s]').forEach(el=> el.addEventListener('click', ()=>{ nav.querySelectorAll('[data-s]').forEach(x=>x.classList.remove('active')); el.classList.add('active'); setSection(el.dataset.s); }));
+</script>
+</body>
+</html>

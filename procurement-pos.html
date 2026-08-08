@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Service POs · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Service Purchase Orders</h1><div class="sub">Auto-generated from approved labour structure, contracts and configured charges.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal" style="width:min(600px,92vw);" id="modal"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+const statusTone = { DRAFT:'neutral', ISSUED:'info', ACKNOWLEDGED:'success', CLOSED:'neutral' };
+let vendors=[], warehouses=[];
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [pos, v, w] = await Promise.all([api.listPurchaseOrders(), api.listVendors(), api.listWarehouses()]);
+  vendors=v; warehouses=w;
+  document.getElementById('seedBtn').style.display = pos.length ? 'none':'';
+  const rows = pos.map(p=>({ ...p, venName: v.find(x=>x.id===p.vendorId)?.name||'—', whName: w.find(x=>x.id===p.warehouseId)?.code||'—' }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'id', label:'PO Number', sortable:true, render:r=> `<span class="cell-id">${r.id}</span>` },
+      { key:'venName', label:'Vendor', sortable:true }, { key:'whName', label:'Warehouse' },
+      { key:'period', label:'Period' }, { key:'contractId', label:'Contract', render:r=> `<span class="mono">${r.contractId}</span>` },
+      { key:'total', label:'Total', sortable:true, render:r=> `<span class="mono">₹${r.total.toLocaleString('en-IN')}</span>` },
+      { key:'status', label:'Status', sortable:true, render:r=> `<span class="badge badge-${statusTone[r.status]}">${r.status}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:10, searchKeys:['id','venName'],
+    onRowClick: openPo,
+    emptyState:{ icon:'fileText', title:'No purchase orders yet', desc:'Service POs generated from approved labour structure will appear here.' },
+  });
+}
+function openPo(p){
+  document.getElementById('modal').innerHTML = `
+    <div class="panel-head"><h3>${p.id}</h3><button class="icon-btn" id="closeModal">${icon('x')}</button></div>
+    <div class="panel-body">
+      <div class="card-grid mb-16" style="grid-template-columns:1fr 1fr;">
+        ${['Vendor','Warehouse','Period','Contract','Status','Total'].map(l=>'').join('')}
+        <div class="field"><label>Vendor</label><div class="input" style="display:flex;align-items:center;">${vendors.find(v=>v.id===p.vendorId)?.name}</div></div>
+        <div class="field"><label>Warehouse</label><div class="input" style="display:flex;align-items:center;">${warehouses.find(w=>w.id===p.warehouseId)?.name}</div></div>
+        <div class="field"><label>Period</label><div class="input" style="display:flex;align-items:center;">${p.period}</div></div>
+        <div class="field"><label>Contract</label><div class="input mono" style="display:flex;align-items:center;">${p.contractId}</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="flex-between mb-16" style="font-weight:650;"><span>Total (incl. service charge)</span><span class="mono">₹${p.total.toLocaleString('en-IN')}</span></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm">${icon('eye')} View</button>
+        <button class="btn btn-secondary btn-sm">${icon('download')} Download</button>
+        <button class="btn btn-secondary btn-sm">${icon('messageSquare')} Send</button>
+        <button class="btn btn-secondary btn-sm">${icon('history')} Audit</button>
+      </div>
+    </div>`;
+  document.getElementById('modalScrim').classList.add('show');
+  document.getElementById('closeModal').onclick = ()=> document.getElementById('modalScrim').classList.remove('show');
+}
+document.getElementById('modalScrim').addEventListener('click', (e)=>{ if(e.target.id==='modalScrim') document.getElementById('modalScrim').classList.remove('show'); });
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

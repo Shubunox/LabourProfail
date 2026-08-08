@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Operational Reports · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Operational Reports</h1><div class="sub">Attendance completion, exception rate and workforce fulfilment across the network.</div></div></div>
+      <div class="card-grid mb-20" style="grid-template-columns:repeat(4,1fr);" id="kpis"></div>
+      <div class="panel"><div class="panel-head"><h3>Warehouse Fulfilment</h3></div><div class="panel-body" id="fulfil"></div></div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+async function boot(){
+  const [warehouses, staff, exceptions] = await Promise.all([api.listWarehouses(), api.listStaff(), api.listExceptions()]);
+  if(!warehouses.length){
+    document.getElementById('kpis').innerHTML='';
+    document.getElementById('fulfil').innerHTML = `<div class="state-block" style="padding:40px 10px;"><div class="state-icon">${icon('barChart')}</div><h3>No operational data yet</h3><p>Load development data from the Overview page.</p></div>`;
+    return;
+  }
+  const active = staff.filter(s=>s.status==='ACTIVE');
+  const fulfilmentPct = Math.round((active.length / warehouses.reduce((s,w)=>s+w.approvedStrength,0))*100);
+  const excRate = (exceptions.length / Math.max(1,active.length) * 100).toFixed(1);
+  document.getElementById('kpis').innerHTML = [
+    ['Network Fulfilment', fulfilmentPct+'%'], ['Exception Rate', excRate+'%'], ['Operational Warehouses', warehouses.filter(w=>w.status==='OPERATIONAL').length], ['Total Active Workforce', active.length],
+  ].map(([l,v])=> `<div class="kpi-card"><div class="kpi-label mb-8">${l}</div><div class="kpi-value" style="font-size:20px;">${v}</div></div>`).join('');
+
+  document.getElementById('fulfil').innerHTML = warehouses.map(w=>{
+    const act = active.filter(s=>s.warehouseId===w.id).length;
+    const pct = Math.min(100, Math.round((act/w.approvedStrength)*100));
+    return `<div class="mb-14"><div class="flex-between" style="font-size:var(--fs-xs);margin-bottom:5px;"><span>${w.name}</span><span class="mono">${pct}%</span></div><div class="progress"><div style="width:${pct}%;"></div></div></div>`;
+  }).join('');
+}
+boot();
+</script>
+</body>
+</html>

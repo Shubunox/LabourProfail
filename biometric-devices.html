@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Biometric Devices · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Biometric Devices</h1><div class="sub">Device registry and connection health for real attendance terminals. This screen talks to a configurable device gateway — see js/biometric/device-config.js.</div></div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+          <button class="btn btn-primary" id="addDeviceBtn">Register device</button>
+        </div>
+      </div>
+
+      <div class="card-grid mb-20" style="grid-template-columns:repeat(4,1fr);" id="gatewayStatus"></div>
+
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="drawer-scrim" id="drawerScrim"><div class="drawer" id="drawer"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+import { deviceManager } from './js/biometric/device-manager.js';
+import { deviceHealth } from './js/biometric/device-health.js';
+import { deviceConfig } from './js/biometric/device-config.js';
+mountShell();
+
+const stateTone = { CONNECTED:'success', DISCONNECTED:'neutral', SYNCING:'info', ERROR:'error', AUTHENTICATING:'warning' };
+let warehouses = [];
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [devices, w] = await Promise.all([api.listDevices(), api.listWarehouses()]);
+  warehouses = w;
+  document.getElementById('seedBtn').style.display = devices.length ? 'none':'';
+
+  const summary = deviceHealth.summarize(devices);
+  document.getElementById('gatewayStatus').innerHTML = [
+    { label:'Gateway Mode', value: deviceConfig.isGatewayConfigured() ? 'LIVE DEVICE MODE':'DEVELOPMENT MODE', icon:'server', tone: deviceConfig.isGatewayConfigured()?'success':'warning' },
+    { label:'Connected Devices', value: `${summary.connected} / ${summary.total}`, icon:'wifi', tone:'info' },
+    { label:'Errored Devices', value: summary.errored, icon:'alertCircle', tone: summary.errored?'error':'success' },
+    { label:'Network Health', value: summary.health.replace('_',' '), icon:'activity', tone: summary.health==='HEALTHY'?'success':summary.health==='DEGRADED'?'error':'warning' },
+  ].map(c=> `
+    <div class="kpi-card">
+      <div class="kpi-top"><span class="kpi-label">${c.label}</span><span class="kpi-icon" style="background:var(--${c.tone}-soft);color:var(--${c.tone});">${icon(c.icon)}</span></div>
+      <div class="kpi-value" style="font-size:18px;">${c.value}</div>
+    </div>`).join('');
+
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'name', label:'Device', sortable:true, render:r=> `<div><b>${r.name}</b><div class="cell-sub mono">${r.id} · ${r.serial}</div></div>` },
+      { key:'type', label:'Type', render:r=> `<span class="badge badge-neutral">${r.type}</span>` },
+      { key:'warehouseId', label:'Warehouse', render:r=> warehouses.find(w=>w.id===r.warehouseId)?.code || '—' },
+      { key:'ip', label:'Network', render:r=> `<span class="mono">${r.ip}:${r.port}</span>` },
+      { key:'connectionStatus', label:'Status', sortable:true, render:r=> `<span class="badge badge-${stateTone[r.connectionStatus]}" id="status-${r.id}">${r.connectionStatus}</span>` },
+      { key:'lastSync', label:'Last Sync', sortable:true, render:r=> timeAgo(r.lastSync) },
+      { key:'registeredUsers', label:'Enrolled Users', sortable:true },
+      { key:'mode', label:'Mode', render:r=> `<span class="badge badge-${r.mode==='LIVE'?'accent':'neutral'}">${r.mode}</span>` },
+    ],
+    rows: devices, getId:r=>r.id, pageSize:10, searchKeys:['name','id','serial'],
+    filters:[{ key:'connectionStatus', label:'Status', options:['CONNECTED','DISCONNECTED','SYNCING','ERROR','AUTHENTICATING'].map(v=>({value:v,label:v})) }],
+    onRowClick: openDevice,
+    emptyState:{ icon:'fingerprint', title:'No biometric devices registered', desc:'Register your real attendance terminal, or load development data to preview this workspace.' },
+  });
+}
+
+function timeAgo(iso){
+  const min = Math.round((Date.now()-new Date(iso))/60000);
+  if(min<1) return 'Just now'; if(min<60) return `${min}m ago`;
+  const hr = Math.round(min/60); return hr<24?`${hr}h ago`:`${Math.round(hr/24)}d ago`;
+}
+
+function openDevice(d){
+  const scrim = document.getElementById('drawerScrim'), drawer = document.getElementById('drawer');
+  const wh = warehouses.find(w=>w.id===d.warehouseId);
+  drawer.innerHTML = `
+    <div class="drawer-head">
+      <div><h3 style="font-size:16px;">${d.name}</h3><div class="cell-sub mono">${d.id}</div></div>
+      <button class="icon-btn" id="closeDrawer">${icon('x')}</button>
+    </div>
+    <div class="drawer-body">
+      <div class="flex-between mb-16">
+        <span class="badge badge-${stateTone[d.connectionStatus]}" id="drawerStatus">${d.connectionStatus}</span>
+        <span class="badge badge-${d.mode==='LIVE'?'accent':'neutral'}">${d.mode} MODE</span>
+      </div>
+      <div class="card-grid mb-20" style="grid-template-columns:1fr 1fr;">
+        ${field('Model', d.model)}${field('Serial', d.serial)}
+        ${field('IP : Port', `${d.ip}:${d.port}`)}${field('Warehouse', wh ? wh.name:'—')}
+        ${field('Firmware', d.firmware)}${field('Registered users', d.registeredUsers)}
+        ${field('Last sync', timeAgo(d.lastSync))}${field('Device type', d.type)}
+      </div>
+      <div class="divider"></div>
+      <div class="section-title">Gateway Actions</div>
+      <p class="text-tertiary mb-16" style="font-size:var(--fs-xs);">${d.mode==='LIVE' ? 'These actions call your configured device gateway.' : 'No live gateway is configured — actions run in simulation and are clearly not real hardware events.'}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" id="btnConnect">${icon('power')} Connect</button>
+        <button class="btn btn-secondary btn-sm" id="btnDisconnect">${icon('x')} Disconnect</button>
+        <button class="btn btn-secondary btn-sm" id="btnSync">${icon('refresh')} Sync Users</button>
+        <a class="btn btn-secondary btn-sm" href="biometric-terminal.html?device=${d.id}">${icon('scan')} Open Terminal</a>
+        <a class="btn btn-secondary btn-sm" href="biometric-enrollment.html?device=${d.id}">${icon('fingerprint')} Enroll Staff</a>
+      </div>
+    </div>
+    <div class="drawer-foot"><button class="btn btn-secondary" id="cancelDrawer">Close</button></div>`;
+  scrim.classList.add('show'); drawer.classList.add('show');
+  const close=()=>{ scrim.classList.remove('show'); drawer.classList.remove('show'); };
+  document.getElementById('closeDrawer').onclick=close; document.getElementById('cancelDrawer').onclick=close;
+  scrim.onclick=(e)=>{ if(e.target===scrim) close(); };
+
+  function field(label,val){ return `<div class="field"><label>${label}</label><div class="input mono" style="display:flex;align-items:center;background:rgba(255,255,255,0.02);">${val}</div></div>`; }
+
+  const badgeEl = document.getElementById('drawerStatus');
+  deviceManager.on('device:state', ({deviceId, state})=>{
+    if(deviceId!==d.id) return;
+    badgeEl.className = `badge badge-${stateTone[state]}`; badgeEl.textContent = state;
+    const rowBadge = document.getElementById(`status-${d.id}`);
+    if(rowBadge){ rowBadge.className = `badge badge-${stateTone[state]}`; rowBadge.textContent = state; }
+  });
+  document.getElementById('btnConnect').onclick = async ()=>{ await deviceManager.connect(d); toast.show({type:'success', title:`${d.name} connected`}); };
+  document.getElementById('btnDisconnect').onclick = async ()=>{ await deviceManager.disconnect(d); toast.show({type:'info', title:`${d.name} disconnected`}); };
+  document.getElementById('btnSync').onclick = async ()=>{ await deviceManager.syncUsers(d); toast.show({type:'success', title:'User sync complete'}); };
+}
+
+document.getElementById('addDeviceBtn').addEventListener('click', ()=> toast.show({type:'info', title:'Register device', msg:'Add device ID, model, serial, IP/port and warehouse mapping — wire to POST /api/devices when a backend is connected.'}));
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>

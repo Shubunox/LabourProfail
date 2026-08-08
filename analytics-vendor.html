@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vendor Analytics · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header"><div><h1>Vendor Analytics</h1><div class="sub">Compliance posture, workforce share and cost concentration by vendor.</div></div></div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+document.getElementById('devBanner').innerHTML = devModeBanner();
+
+async function boot(){
+  const vendors = await api.listVendors();
+  const total = vendors.reduce((s,v)=>s+v.monthlyCost,0) || 1;
+  const rows = vendors.map(v=> ({ ...v, share: ((v.monthlyCost/total)*100).toFixed(1) }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'name', label:'Vendor', sortable:true },
+      { key:'complianceStatus', label:'Compliance', render:r=> `<span class="badge badge-${r.complianceStatus==='COMPLIANT'?'success':r.complianceStatus==='PENDING'?'warning':'error'}">${r.complianceStatus}</span>` },
+      { key:'workforceCount', label:'Workforce', sortable:true },
+      { key:'monthlyCost', label:'Monthly Cost', sortable:true, render:r=> `<span class="mono">₹${r.monthlyCost.toLocaleString('en-IN')}</span>` },
+      { key:'share', label:'Cost Share', sortable:true, render:r=> `<div style="display:flex;align-items:center;gap:8px;"><div class="progress" style="width:70px;"><div style="width:${r.share}%;"></div></div><span class="mono" style="font-size:10.5px;">${r.share}%</span></div>` },
+    ],
+    rows, getId:r=>r.id, pageSize:12, searchKeys:['name'],
+    emptyState:{ icon:'truck', title:'No vendor data yet', desc:'Load development data from the Overview page.' },
+  });
+}
+boot();
+</script>
+</body>
+</html>

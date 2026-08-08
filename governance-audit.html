@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Audit Trail · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Audit Trail</h1><div class="sub">Immutable log of every state-changing action across the system. Records here cannot be edited or deleted from the UI.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+mountShell();
+
+const actionTone = { APPROVE:'success', REJECT:'error', UPDATE:'info', CREATE:'accent', DEACTIVATE:'warning' };
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const logs = await api.listAuditLogs();
+  document.getElementById('seedBtn').style.display = logs.length ? 'none':'';
+
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'timestamp', label:'Timestamp', sortable:true, render:r=> `<span class="mono">${new Date(r.timestamp).toLocaleString()}</span>` },
+      { key:'user', label:'User', sortable:true },
+      { key:'role', label:'Role', render:r=> `<span class="badge badge-neutral">${r.role.replaceAll('_',' ')}</span>` },
+      { key:'action', label:'Action', sortable:true, render:r=> `<span class="badge badge-${actionTone[r.action]}">${r.action}</span>` },
+      { key:'entity', label:'Entity' },
+      { key:'entityId', label:'Entity ID', render:r=> `<span class="cell-id">${r.entityId}</span>` },
+      { key:'ip', label:'IP Address', render:r=> `<span class="mono">${r.ip}</span>` },
+    ],
+    rows: logs, getId:r=>r.id, pageSize:14, searchKeys:['user','entity','entityId'],
+    filters:[{ key:'action', label:'Action', options:['APPROVE','REJECT','UPDATE','CREATE','DEACTIVATE'].map(v=>({value:v,label:v})) }],
+    emptyState:{ icon:'history', title:'No audit events yet', desc:'All state-changing actions will be logged here.' },
+  });
+}
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); boot(); });
+boot();
+</script>
+</body>
+</html>

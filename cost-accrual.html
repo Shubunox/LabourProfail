@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Daily Accrual · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" /><link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" /><link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div><h1>Daily Accrual</h1><div class="sub">Transparent, line-by-line calculation of every labour cost transaction. Nothing is hidden behind an unexplained total.</div></div>
+        <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+      </div>
+      <div class="card-grid mb-20" style="grid-template-columns:repeat(4,1fr);" id="totals"></div>
+      <div class="panel"><div class="panel-body no-pad" id="tableRoot"></div></div>
+    </main>
+  </div>
+</div>
+<div class="modal-scrim" id="modalScrim"><div class="modal" id="modal" style="width:min(560px,92vw);"></div></div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+mountShell();
+
+let staff=[], warehouses=[];
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [accruals, s, w] = await Promise.all([api.listAccruals(), api.listStaff(), api.listWarehouses()]);
+  staff=s; warehouses=w;
+  document.getElementById('seedBtn').style.display = accruals.length ? 'none':'';
+
+  const sum = (k)=> accruals.reduce((a,x)=>a+x[k],0);
+  document.getElementById('totals').innerHTML = [
+    ['Base Wage', sum('baseWage')], ['Holiday Wage', sum('holidayWage')], ['Overtime Compensation', sum('overtimeComp')], ['Service Charge', sum('serviceCharge')],
+  ].map(([l,v])=> `<div class="kpi-card"><div class="kpi-label mb-8">${l}</div><div class="kpi-value" style="font-size:19px;">₹${v.toLocaleString('en-IN')}</div></div>`).join('');
+
+  const rows = accruals.map(a=>({ ...a, staffName: staff.find(s=>s.id===a.staffId)?.name || 'Unknown', whName: warehouses.find(w=>w.id===a.warehouseId)?.code || '—' }));
+  createDataTable(document.getElementById('tableRoot'), {
+    columns:[
+      { key:'staffName', label:'Staff', sortable:true, render:r=> `<div><b>${r.staffName}</b><div class="cell-sub mono">${r.id}</div></div>` },
+      { key:'whName', label:'Warehouse' },
+      { key:'date', label:'Date', sortable:true, render:r=> new Date(r.date).toLocaleDateString() },
+      { key:'baseWage', label:'Base', sortable:true, render:r=> `<span class="mono">₹${r.baseWage}</span>` },
+      { key:'holidayWage', label:'Holiday', render:r=> `<span class="mono">₹${r.holidayWage}</span>` },
+      { key:'overtimeComp', label:'Overtime', render:r=> `<span class="mono">₹${r.overtimeComp}</span>` },
+      { key:'serviceCharge', label:'Service Chg', render:r=> `<span class="mono">₹${r.serviceCharge}</span>` },
+      { key:'total', label:'Total Accrual', sortable:true, render:r=> `<b class="mono">₹${r.total}</b>` },
+    ],
+    rows, getId:r=>r.id, pageSize:10, searchKeys:['staffName'],
+    onRowClick: openBreakdown,
+    emptyState:{ icon:'wallet', title:'No accrual transactions yet', desc:'Daily cost accrual transactions will appear here once attendance is processed.' },
+  });
+}
+
+function openBreakdown(r){
+  document.getElementById('modal').innerHTML = `
+    <div class="panel-head"><h3>Accrual breakdown — ${r.id}</h3><button class="icon-btn" id="closeModal">${icon('x')}</button></div>
+    <div class="panel-body">
+      <div class="mb-16" style="font-size:var(--fs-xs);color:var(--text-tertiary);">${r.staffName} · ${new Date(r.date).toLocaleDateString()} · ${r.whName}</div>
+      ${line('Base wage', r.baseWage, 'Standard daily wage rate for this worker\'s category')}
+      ${line('Holiday wage', r.holidayWage, r.holidayWage? 'Full-day wage credited for a designated holiday':'No holiday applicable on this date')}
+      ${line('Overtime compensation', r.overtimeComp, r.overtimeComp? 'Extra hours beyond the configured threshold, at 1.3× base rate':'No overtime recorded')}
+      ${line('Service charge', r.serviceCharge, '18% vendor service charge applied to base wage')}
+      <div class="divider"></div>
+      <div class="flex-between" style="font-size:var(--fs-base);font-weight:650;"><span>Total accrual</span><span class="mono">₹${r.total}</span></div>
+    </div>`;
+  document.getElementById('modalScrim').classList.add('show');
+  document.getElementById('closeModal').onclick = ()=> document.getElementById('modalScrim').classList.remove('show');
+}
+function line(label, val, note){
+  return `<div class="flex-between mb-12" style="align-items:flex-start;">
+    <div><div style="font-size:var(--fs-sm);font-weight:550;">${label}</div><div class="cell-sub" style="max-width:320px;">${note}</div></div>
+    <span class="mono" style="font-size:var(--fs-sm);">₹${val}</span>
+  </div>`;
+}
+document.getElementById('modalScrim').addEventListener('click', (e)=>{ if(e.target.id==='modalScrim') document.getElementById('modalScrim').classList.remove('show'); });
+
+document.getElementById('seedBtn').addEventListener('click', async ()=>{ await api.seedDevData(); toast.show({type:'success', title:'Development data loaded'}); boot(); });
+boot();
+</script>
+</body>
+</html>
