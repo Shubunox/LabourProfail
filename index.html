@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Overview · LabourPro</title>
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" />
+<link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+<div class="app-shell">
+  <div id="shell-root"></div>
+  <div class="main" id="main">
+    <main class="content">
+      <div id="devBanner"></div>
+      <div class="page-header">
+        <div>
+          <h1>Operations Center</h1>
+          <div class="sub">Real-time view of workforce presence, cost accrual, and operational risk across your network.</div>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-secondary" id="seedBtn">Load development data</button>
+          <button class="btn btn-secondary" id="wipeBtn" style="display:none;">Clear development data</button>
+        </div>
+      </div>
+
+      <div id="emptyOverview"></div>
+      <div id="dashboardBody" style="display:none;">
+
+        <div class="section-title">Workforce Snapshot</div>
+        <div class="card-grid mb-20" style="grid-template-columns:repeat(5,1fr);" id="wfSnapshot"></div>
+
+        <div class="card-grid mb-20" style="grid-template-columns:1.3fr 1fr;align-items:start;">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h3>Attendance Intelligence</h3><div class="desc">Today across all operational warehouses</div></div>
+              <span class="badge badge-neutral">Live</span>
+            </div>
+            <div class="panel-body" id="attendanceIntel"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>Operational Alerts</h3><div class="desc">Prioritized, requires attention</div></div></div>
+            <div class="panel-body no-pad" id="alertsList" style="max-height:320px;overflow-y:auto;"></div>
+          </div>
+        </div>
+
+        <div class="card-grid mb-20" style="grid-template-columns:1fr 1fr 1fr;">
+          <div class="panel" style="grid-column:span 2;">
+            <div class="panel-head"><div><h3>Cost Intelligence</h3><div class="desc">Month-to-date accrual vs. projection</div></div></div>
+            <div class="panel-body" id="costIntel"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>Workforce Utilization</h3><div class="desc">Approved vs. actual</div></div></div>
+            <div class="panel-body" id="utilPanel"></div>
+          </div>
+        </div>
+
+        <div class="panel mb-20">
+          <div class="panel-head">
+            <div><h3>Warehouse Overview</h3><div class="desc">Strength, attendance and cost by facility</div></div>
+            <a href="admin-warehouses.html" class="btn btn-ghost btn-sm">Manage warehouses ${''}</a>
+          </div>
+          <div class="panel-body no-pad" id="whTable"></div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell, devModeBanner } from './js/components/shell.js';
+import { api } from './js/services/api.js';
+import { icon } from './js/components/icons.js';
+import { createDataTable } from './js/components/table.js';
+import { toast } from './js/components/toast.js';
+
+mountShell();
+
+const seedBtn = document.getElementById('seedBtn');
+const wipeBtn = document.getElementById('wipeBtn');
+
+async function boot(){
+  document.getElementById('devBanner').innerHTML = devModeBanner();
+  const [warehouses, staff, structure, exceptions, accruals, devices] = await Promise.all([
+    api.listWarehouses(), api.listStaff(), api.listStructure(), api.listExceptions(), api.listAccruals(), api.listDevices(),
+  ]);
+
+  if(warehouses.length === 0){
+    seedBtn.style.display = '';
+    wipeBtn.style.display = 'none';
+    document.getElementById('dashboardBody').style.display = 'none';
+    document.getElementById('emptyOverview').innerHTML = `
+      <div class="panel state-block" style="padding:80px 24px;">
+        <div class="state-icon">${icon('grid')}</div>
+        <h3>No operational data yet</h3>
+        <p>Connect your warehouses, vendors and staff records to populate the operations center — or load development data to explore the interface.</p>
+        <button class="btn btn-primary mb-8" id="emptySeedBtn" style="margin-top:14px;">Load development data</button>
+      </div>`;
+    document.getElementById('emptySeedBtn').addEventListener('click', seed);
+    return;
+  }
+
+  seedBtn.style.display = api.isDevMode() ? 'none' : '';
+  wipeBtn.style.display = api.isDevMode() ? '' : 'none';
+  document.getElementById('emptyOverview').innerHTML = '';
+  document.getElementById('dashboardBody').style.display = '';
+
+  renderSnapshot(warehouses, staff);
+  renderAttendance(staff, exceptions);
+  renderAlerts(exceptions, devices, warehouses);
+  renderCost(accruals, warehouses);
+  renderUtilization(structure);
+  renderWarehouseTable(warehouses, staff, accruals);
+}
+
+function renderSnapshot(warehouses, staff){
+  const approved = warehouses.reduce((s,w)=> s+w.approvedStrength, 0);
+  const active = staff.filter(s=> s.status==='ACTIVE').length;
+  const present = Math.round(active * 0.91);
+  const adhoc = staff.filter(s=> s.deployment==='AD_HOC' && s.status==='ACTIVE').length;
+  const variance = active - approved;
+
+  const cards = [
+    { label:'Approved Workforce', value: approved, icon:'layers', color:'var(--accent)' },
+    { label:'Active Workforce', value: active, icon:'users', color:'var(--info)' },
+    { label:'Present Today', value: present, icon:'checkCircle', color:'var(--success)' },
+    { label:'Ad-Hoc Workforce', value: adhoc, icon:'userPlus', color:'var(--accent-2)' },
+    { label:'Workforce Variance', value: (variance>=0?'+':'')+variance, icon:'trending', color: variance<0?'var(--error)':'var(--success)' },
+  ];
+  document.getElementById('wfSnapshot').innerHTML = cards.map(c=> `
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-label">${c.label}</span>
+        <span class="kpi-icon" style="background:${c.color}1f;color:${c.color};">${icon(c.icon)}</span>
+      </div>
+      <div class="kpi-value">${c.value.toLocaleString()}</div>
+    </div>`).join('');
+}
+
+function renderAttendance(staff, exceptions){
+  const active = staff.filter(s=> s.status==='ACTIVE');
+  const present = Math.round(active.length*0.91);
+  const absent = active.length - present;
+  const late = Math.round(present*0.06);
+  const ot = Math.round(present*0.11);
+  const unverified = staff.filter(s=> !s.verified).length;
+  const openExc = exceptions.filter(e=> e.status==='OPEN').length;
+
+  const rows = [
+    ['Present', present, 'success'], ['Absent', absent, 'error'], ['Exceptions', openExc, 'warning'],
+    ['Late Arrivals', late, 'warning'], ['Overtime', ot, 'info'], ['Unverified', unverified, 'neutral'],
+  ];
+  document.getElementById('attendanceIntel').innerHTML = `
+    <div class="card-grid" style="grid-template-columns:repeat(3,1fr);">
+      ${rows.map(([label,val,tone])=> `
+        <div style="padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid var(--border-soft);">
+          <div class="badge badge-${tone}" style="margin-bottom:8px;">${label}</div>
+          <div style="font-family:var(--font-mono);font-size:20px;font-weight:650;">${val}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function renderAlerts(exceptions, devices, warehouses){
+  const alerts = [];
+  exceptions.filter(e=>e.status==='OPEN').slice(0,6).forEach(e=>{
+    const wh = warehouses.find(w=>w.id===e.warehouseId);
+    alerts.push({ sev: e.type==='WORKFORCE_LIMIT_EXCEEDED'?'CRITICAL':'HIGH', title:e.type.replaceAll('_',' '), sub:`${wh?wh.name:'Unknown warehouse'} · Attendance exception` });
+  });
+  devices.filter(d=>d.connectionStatus==='ERROR').forEach(d=>{
+    const wh = warehouses.find(w=>w.id===d.warehouseId);
+    alerts.push({ sev:'CRITICAL', title:`Device error — ${d.name}`, sub:`${wh?wh.name:''} · Biometric terminal offline` });
+  });
+  warehouses.filter(w=> w.actualStrength < w.approvedStrength*0.85).forEach(w=>{
+    alerts.push({ sev:'MEDIUM', title:`Workforce shortfall — ${w.name}`, sub:`Actual strength below 85% of approved` });
+  });
+
+  if(!alerts.length){
+    document.getElementById('alertsList').innerHTML = `<div class="state-block" style="padding:40px 20px;"><div class="state-icon">${icon('checkCircle')}</div><h3>No active alerts</h3><p>All operational thresholds are within range.</p></div>`;
+    return;
+  }
+  const sevColor = { CRITICAL:'error', HIGH:'warning', MEDIUM:'info' };
+  document.getElementById('alertsList').innerHTML = alerts.slice(0,8).map(a=> `
+    <div style="display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border-soft);align-items:flex-start;">
+      <span class="badge badge-${sevColor[a.sev]}" style="margin-top:2px;">${a.sev}</span>
+      <div style="min-width:0;"><div style="font-size:var(--fs-sm);font-weight:550;">${a.title}</div><div style="font-size:var(--fs-xs);color:var(--text-tertiary);margin-top:2px;">${a.sub}</div></div>
+    </div>`).join('');
+}
+
+function renderCost(accruals, warehouses){
+  const today = accruals.filter(a=> new Date(a.date) > new Date(Date.now()-864e5));
+  const todayTotal = today.reduce((s,a)=>s+a.total,0);
+  const mtd = accruals.reduce((s,a)=>s+a.total,0);
+  const projected = Math.round(mtd * (30/7));
+  const actual = mtd;
+  const variance = actual - projected*0.23;
+
+  document.getElementById('costIntel').innerHTML = `
+    <div class="card-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+      ${[["Today's Accrual",todayTotal],['Month-to-Date',mtd],['Projected (Month)',projected],['Cost Variance',variance]].map(([l,v])=> `
+        <div>
+          <div class="kpi-label mb-8">${l}</div>
+          <div class="mono" style="font-size:18px;font-weight:650;">₹${Math.round(v).toLocaleString('en-IN')}</div>
+        </div>`).join('')}
+    </div>
+    <div class="progress mb-8"><div style="width:${Math.min(100,(mtd/projected)*100).toFixed(0)}%"></div></div>
+    <div style="font-size:var(--fs-xs);color:var(--text-tertiary);">${((mtd/projected)*100).toFixed(1)}% of monthly projection consumed</div>`;
+}
+
+function renderUtilization(structure){
+  const approved = structure.reduce((s,x)=>s+x.approved,0);
+  const actual = structure.reduce((s,x)=>s+x.actual,0);
+  const pct = approved ? Math.min(100, Math.round((actual/approved)*100)) : 0;
+  document.getElementById('utilPanel').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;padding:8px 0 16px;">
+      <div style="position:relative;width:150px;height:150px;">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="64" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="12"/>
+          <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round"
+            stroke-dasharray="${2*Math.PI*64}" stroke-dashoffset="${2*Math.PI*64*(1-pct/100)}" transform="rotate(-90 75 75)"/>
+          <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#7C6FFF"/><stop offset="100%" stop-color="#2DD4BF"/></linearGradient></defs>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);">${pct}%</div>
+          <div style="font-size:10px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em;">Utilized</div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-between" style="font-size:var(--fs-xs);color:var(--text-tertiary);"><span>Approved: ${approved}</span><span>Actual: ${actual}</span></div>`;
+}
+
+function renderWarehouseTable(warehouses, staff, accruals){
+  const rows = warehouses.map(w=>{
+    const active = staff.filter(s=>s.warehouseId===w.id && s.status==='ACTIVE');
+    const adhoc = active.filter(s=>s.deployment==='AD_HOC').length;
+    const cost = accruals.filter(a=>a.warehouseId===w.id).reduce((s,a)=>s+a.total,0);
+    const variance = active.length - w.approvedStrength;
+    return { id:w.id, name:w.name, code:w.code, approved:w.approvedStrength, actual:active.length,
+      attendance: active.length ? Math.round((active.length*0.91/active.length)*100)+'%':'—',
+      adhoc, cost, variance, status:w.status };
+  });
+  createDataTable(document.getElementById('whTable'), {
+    columns: [
+      { key:'name', label:'Warehouse', sortable:true, render:r=> `<div><b>${r.name}</b><div class="cell-sub mono">${r.code}</div></div>` },
+      { key:'approved', label:'Approved', sortable:true },
+      { key:'actual', label:'Actual', sortable:true },
+      { key:'attendance', label:'Attendance' },
+      { key:'adhoc', label:'Ad-Hoc', sortable:true },
+      { key:'cost', label:'Cost (MTD)', sortable:true, render:r=> `<span class="mono">₹${r.cost.toLocaleString('en-IN')}</span>` },
+      { key:'variance', label:'Variance', sortable:true, render:r=> `<span style="color:${r.variance<0?'var(--error)':'var(--success)'}">${r.variance>=0?'+':''}${r.variance}</span>` },
+      { key:'status', label:'Status', render:r=> `<span class="badge badge-${r.status==='OPERATIONAL'?'success':r.status==='SETUP'?'info':'warning'}">${r.status}</span>` },
+    ],
+    rows, getId:r=>r.id, pageSize:8, searchKeys:['name','code'],
+    onRowClick: ()=> location.href='admin-warehouses.html',
+  });
+}
+
+async function seed(){
+  seedBtn.disabled = true;
+  await api.seedDevData();
+  toast.show({ type:'success', title:'Development data loaded', msg:'All records are simulated and tagged as development data.' });
+  boot();
+}
+seedBtn.addEventListener('click', seed);
+wipeBtn.addEventListener('click', async ()=>{ await api.clearDevData(); toast.show({type:'info', title:'Development data cleared'}); boot(); });
+
+boot();
+</script>
+</body>
+</html>
